@@ -1,82 +1,54 @@
-﻿# Состояние — 20.10.2026
+﻿# Состояние — 20.10.2026, Windows-диагностика
 
-Настоящий форк: https://github.com/potia-byte/agent-teams-ai.
-Рабочая копия: app-dev, ветка media-company/build-bootstrap.
-Baseline: 846ed19df0a2459aad59fe6ebb802a7c4b7ab972, Agent Teams AI 2.17.10.
-Origin — собственный форк, upstream — 777genius/agent-teams-ai.
+Форк potia-byte/agent-teams-ai, media-company/build-bootstrap, draft PR #1.
+Начальный HEAD 7767fdb6c совпал с origin; рабочее дерево было чистым.
+AGENTS.md, CLAUDE.md, guardrails и Git policy прочитаны.
 
-## Подтверждённые результаты
+## Код
 
-- Полностью восстановлены оригинальные исходники и Git-история, включая все
-  исторические blobs. git fsck --full завершился с exit 0; missing objects=0;
-  shallow=false. Promisor markers и partial-clone config сняты после проверки.
-  Доказательства в родительской .clone-recovery/verification.json и fsck.txt.
-  История исходного HEAD содержит 6367 коммитов. Все ветки/теги сохранены.
-- Крупные исторические объекты получены через официальный raw CDN с проверкой
-  Git SHA; архив 28 714 596 байт и runtime-blob 86 167 456 байт не запускались.
-  Последние 869 объектов получены по точным commit/path с проверкой каждого SHA.
-  Повторная докачка исключала уже сохранённые объекты.
-- Node 24.19.0 подходит требованиям. Corepack 0.35.0 подготовил pnpm 11.22.0
-  локально в .local-tools/corepack, без глобальных shims.
-- Владелец разрешил локальную бесплатную установку. Все зависимости lockfile
-  скачаны. После EPERM install-скриптов выполнен frozen install --ignore-scripts:
-  связаны 2291 пакет, скачано повторно 0. package.json и lockfile не менялись.
-- Electron 44.4.5 установлен в node_modules, бинарный файл существует; запуск
-  Electron в Node-режиме подтвердил electron=44.4.5, node=24.21.0, ABI=149.
-  Это не smoke приложения и не доказательство совместимости всех native modules.
-- better-sqlite3 12.11.1 для Node ABI 137 установлен штатным prebuild-install
-  из официального GitHub-релиза. Проверка SQLite :memory: select 1 успешна.
-  Electron ABI 149 ещё не собран/проверен; cpu-features/pty rebuild не подтверждён.
-- Полный pnpm typecheck прошёл (exit 0, основная и семь дополнительных конфигураций).
+- 536f96169: scripts/diagnostics — матрица процессов, контекст и события защиты,
+  реальные Electron native probes, воспроизводимые запускатели, exact runtime bootstrap.
+- dad6b81ef: launcher сохраняет прокси, восстанавливает окружение, отклоняет
+  inherited runtime overrides до dev-запуска, изолирует TMP/TEMP, CLI/XDG/config/cache.
+  Native stderr в Windows PowerShell больше не подменяет фактический exit code.
+- electronDevPathOverrides.ts: при явном dev userData изолируются sessionData,
+  logs и crashDumps; ошибка создания этих каталогов останавливает запуск.
+  Поведение без override сохранено. Unit cases расширены.
 
-## Реальные изменения этой итерации
+## Проверенный результат
 
-- scripts/media-company-local.ps1: локальный Corepack, кэши, dev userData и Claude root;
-  процессное окружение восстанавливается после завершения. Verify проверен.
-- .gitignore: исключены .local-tools, загруженные пакеты и исполняемые файлы не коммитятся.
-- test/scripts/ciChangeScope.test.mts: исправлена Windows-совместимость утверждения
-  YAML (допускает CRLF и LF). Исправленный тест прошёл.
-- .github/workflows/media-company-verify.yml подготовлен и сохранён в отдельной
-  локальной ветке media-company/ci-workflow-blocked (2179a00dc). Его push заблокирован
-  scope workflow; в текущую рабочую ветку он не включён, существующие workflows неизменны.
-- Обновлены компактные журналы. Изменений src, интерфейса, package.json,
-  pnpm-lock.yaml и electron.vite.config.ts нет.
+Матрица из 24 случаев в Node 24.19.0 / Electron Node 24.21.0: абсолютные
+Node/Git/esbuild, spawn/spawnSync, shell=false. 12 inherit запусков exit 0;
+12 pipe запусков EPERM. Runtime --version через pipe также получает EPERM.
 
-## Что блокирует следующий этап
+Defender, CodeIntegrity, AppLocker EXE and DLL, Security-Mitigations/UserMode
+включены и доступны; событий в окнах матрицы и Electron main нет. Причина отказа
+не установлена. Ни Defender, ни sandbox не названы доказанной причиной.
 
-Исходная сборка не прошла. pnpm build остановился на esbuild в prebuild с
-spawn EPERM. Vitest и Node-вызовы Git с захватом вывода также блокируются;
-проверка через Node из Electron воспроизводит тот же EPERM.
-Нативный Electron rebuild получает EPERM. Системные права и sandbox не менялись.
+Runtime 0.0.124 полностью готов в .local-tools/runtime-cache: штатные helpers,
+payload-v1 с receipt; CLI 2.777.777. SHA-256 архива совпал с runtime.lock.json:
+22b79b02bcf31c8364124cbbe5553ebdfab0e3fcbc364ea0926b0fa4f690231c.
 
-Новый workflow сохранён локально коммитом 2179a00dc, но GitHub отверг его push
-из-за отсутствия OAuth scope workflow. Права не расширялись. Dispatch исходного
-ci.yml возвращает 404: Actions API нового форка пока не зарегистрировал workflows.
-CI не запускался. Ветка media-company/baseline с 5ad88af38 отправлена успешно.
+После изменений прошли полный typecheck, focused fast lint, launcher tests,
+синтаксис скриптов и исходные pure architecture policies (3597 файлов, 0 нарушений).
+Build и Vitest не прошли: esbuild spawn EPERM. Native rebuild не прошёл: fork/pipe
+EPERM. Официальный SQLite prebuilt Electron ABI149 вернул HTTP404. Реальные native
+probes в Electron Node/main: SQLite ABI137 вместо149; PTY open/connect conpty pipe
+EPERM. Один main запуск также записал Mojo platform channel access denied 0x5.
+Это проверки компонентов, не smoke приложения.
 
-## Следующая безопасная точка продолжения
+## Пакет и продолжение
 
-1. В среде с разрешёнными build subprocesses выполнить из app-dev:
-   ./scripts/media-company-local.ps1 Install, затем Build и Test.
-   Не менять системный Node, глобальные инструменты или рабочую установку приложения.
-2. Получить успешную исходную сборку; подготовить exact runtime 0.0.124 локально.
-   Установленный runtime 0.0.106 не подставлять вместо pin.
-3. Проверить DevMcp в изолированных каталогах .local-tools/state с тестовым проектом.
-4. Только после успешной исходной сборки расширить существующие recovery,
-   provider и lifecycle механизмы для CEO Claude/Codex; проверить checkpoints,
-   fencing, дедупликацию, restart, UNKNOWN и оба недоступны; затем добавить UI состояния.
+.local-tools/diagnostics/windows-build-diagnostics-dad6b81ef.zip (96236 байт).
+SHA256: 3967b12f6a8a4935b4079907e6a26a59ebd30e05171279c715338c9b420011e8.
+Внутри REPRODUCE.txt, исходники проверок с SHA, JSON и логи. Нет бинарников,
+зависимостей, профилей, crash dumps и секретов.
 
-Fallback пока не реализован и не тестировался. Модифицированное приложение
-не запущено. Фабрика, установленный Agent Teams AI и другие проекты не менялись.
-Расходов, платных API, публикаций и коммерческих операций нет.
-Самостоятельный Python company остановлен; файлы сохранены в .abandoned-prototype.
+Нужны разрешённое pipe/IPC выполнение, native rebuild, штатная сборка/Vitest,
+desktop smoke на новом тестовом проекте. Защиту и права не менять. Git и runtime
+перекачивать не нужно: fsck уже прошёл ранее, missing=0, shallow=false.
 
-## Доставка
-
-Коммит реализации подготовки: 3fd2809 (scripts/media-company-local.ps1,
-CRLF-исправление теста, .gitignore и журнал). Ветка отправлена в origin.
-Черновик PR: https://github.com/potia-byte/agent-teams-ai/pull/1.
-Main не менялся; merge не выполнялся. Требуемые независимый review и CI
-пока не получены. После создания PR Actions workflows/runs API также пусты.
-Подготовленный новый workflow остаётся только в локальной ветке
-media-company/ci-workflow-blocked, 2179a00dc.
+CEO fallback, checkpoints/fencing/dedup и русский UI переключений ещё не реализованы:
+они следуют после успешной исходной сборки. Typecheck и probes её не заменяют.
+Установленная версия, фабрика, боевые данные, системные настройки и GitHub scopes
+не менялись. Расходов, платных API, LLM-вызовов и merge нет.

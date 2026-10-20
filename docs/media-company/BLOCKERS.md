@@ -1,50 +1,26 @@
 ﻿# Препятствия — 20.10.2026
 
-Владелец разрешил бесплатную локальную установку. Corepack подготовил pnpm 11.22.0;
-Node 24.19.0 подходит. Все пакеты из lockfile скачаны и связаны. Разрешение на
-установку больше не является препятствием.
+С абсолютными Node/Git/esbuild воспроизводится EPERM при pipe; inherit работает.
+Штатные build, Vitest и electron-rebuild требуют pipe/IPC. В реальном Electron PTY
+получает EPERM на conpty named pipes; один main stderr содержит Mojo channel
+access denied0x5. Конкретная причина отказа НЕ установлена: 4 включённых и доступных
+журнала защиты не содержат событий в окнах тестов. Защита, TLS, sandbox и права
+не менялись. Доказательства и воспроизведение сохранены в диагностическом пакете.
 
-- Обычный pnpm install --frozen-lockfile остановился на install-скрипте
-  better-sqlite3: Node spawn EPERM. Повтор с --ignore-scripts успешно связал
-  те же пакеты из локального store; нативные сборки этим не проверены.
-- pnpm build остановился в исходном prebuild (tsx scripts/fetch-pricing-data.ts):
-  запуск сервиса esbuild получает spawn EPERM. Продуктовый код не модифицирован.
-- Vitest не начинает тесты: bundle-loader блокируется запуском esbuild;
-  configLoader=runner также получает EPERM на Vite optimizeSafeRealPathSync.
-- Прямой postinstall подтвердил EPERM при native Electron rebuild.
-  Первоначальный путь кэша Electron вне workspace исправлен процессной переменной
-  electron_config_cache; итог загрузки проверяется отдельно.
-- Git guards используют Node captured child processes и получают EPERM.
-  pnpm typecheck при этом проходит полностью: не все дочерние процессы запрещены.
+SQLite12.11.1 сейчас ABI137, Electron44.4.5 требует149. Официальный prebuilt
+для electron-v149-win32-x64 вернул404. Штатный rebuild не дошёл до успешной
+компиляции из-за fork/pipe EPERM. cl.exe/MSBuild.exe на PATH и vswhere в стандартном
+пути при ограниченной проверке не найдены; это не полный аудит всех установок.
+Системные Build Tools не устанавливались.
 
-Логи: .clone-recovery в родительской рабочей области. Не менять sandbox, системные
-права или установленные приложения. Успешная исходная сборка остаётся условием
-начала реализации fallback согласно прямому приоритету владельца.
+Git уже полностью восстановлен и проверен. Локальные locked зависимости и pnpm
+установлены. Runtime0.0.124 скачан, checksum/CLI version проверены, payload-v1 готов.
+Повторная загрузка не нужна. Launcher больше не меняет прокси. Пустые изолированные
+CLI config dirs не являются авторизацией или доказательством доступности моделей.
 
-Подготовлен .github/workflows/media-company-verify.yml: стандартный бесплатный
-Windows runner, без секретов, публикаций и upload артефактов. Push с этим файлом
-отклонён GitHub: OAuth App не имеет scope workflow. Права не расширялись.
-Ветка media-company/baseline с документами (5ad88af38) отправлена успешно.
+Существующий GitHub token не имеет scope workflow; доступ не расширять. Новый CI
+workflow сохранён в локальной ветке media-company/ci-workflow-blocked. Унаследованный
+CI ранее возвращал404. PR#1 остаётся draft, merge не выполняется.
 
-Унаследованные workflows пока не зарегистрированы API Actions нового форка:
-список пустой; dispatch существующего ci.yml возвращает HTTP 404, хотя файл
-существует на main. CI не запускался. В собственном форке задана переменная
-CI_LINUX_RUNNER=ubuntu-latest, чтобы унаследованный CI не использовал сторонний
-runner ubicloud. Main, разрешения Actions и защита веток не менялись.
-
-- Установленный runtime 0.0.106 не соответствует pin исходников 0.0.124.
-  Для dev-запуска нужен закреплённый runtime в .local-tools/runtime-cache;
-  боевой runtime не обновлять и не подставлять как проверенную совместимую версию.
-- Read-only аудит Windows через Get-CimInstance запрещён средой; SSH представлен
-  .sbx-denybin/ssh.bat. VPS не проверен, обход ограничений не выполнялся.
-- Telegram, каналы, публикации и коммерческие доступы не настроены. Их подключение
-  не предшествует исходной сборке и fallback. Новых расходов нет.
-
-Итог подготовки: Electron 44.4.5 установлен, бинарный файл и версия подтверждены.
-SQLite Node ABI 137 установлен штатным prebuild-install, select 1 в :memory:
-успешен. Это не Electron ABI 149; нативный Electron rebuild всё ещё не подтверждён.
-Git fsck --full прошёл, недостающих объектов нет; Git больше не является препятствием.
-
-Новый workflow сохранён в локальной ветке media-company/ci-workflow-blocked,
-коммит 2179a00dc. Рабочая ветка media-company/build-bootstrap не меняет workflows
-и может быть отправлена существующим токеном без расширения scope.
+После успешных build/native/Vitest и desktop smoke можно реализовывать CEO fallback.
+Пока нельзя объявлять приложение запускаемым или подменять сборку typecheck/probes.

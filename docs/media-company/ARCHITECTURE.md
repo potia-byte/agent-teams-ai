@@ -33,3 +33,16 @@
 
 Новые feature slices должны следовать `docs/FEATURE_ARCHITECTURE_STANDARD.md` оригинала.
 Не увеличивать существующие oversized-файлы и не добавлять facade inheritance.
+
+## Изоляция dev и диагностика Windows
+
+При явном AGENT_TEAMS_ELECTRON_USER_DATA_DIR существующий early bootstrap
+(electronDevPathOverrides.ts) также устанавливает sessionData, logs и crashDumps
+внутри userData. Ошибка создания каталога прерывает startup. Без dev override
+пути не меняются. Launcher изолирует CLI/XDG/TMP/cache/config и сохраняет proxy env;
+унаследованные overrides runtime/terminal CLI отклоняются до запуска.
+
+Диагностические scripts/diagnostics не являются альтернативной системой компании.
+Они используют реальные Node/Git/esbuild/Electron и штатные runtime checksum/cache
+helpers. Native probe в main процессе не является desktop smoke приложения.
+Supervisor, CEO и UI переключений ещё не реализованы.
