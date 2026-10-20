@@ -1,71 +1,72 @@
-# Состояние — 20.10.2026
+﻿# Состояние — 20.10.2026
 
-Приоритет владельца: настоящий форк Agent Teams AI → успешная исходная сборка Electron →
-Claude/Codex fallback внутри приложения → функции медиакомпании. Отдельное Python-приложение исключено.
+Настоящий форк: https://github.com/potia-byte/agent-teams-ai.
+Рабочая копия: app-dev, ветка media-company/build-bootstrap.
+Baseline: 846ed19df0a2459aad59fe6ebb802a7c4b7ab972, Agent Teams AI 2.17.10.
+Origin — собственный форк, upstream — 777genius/agent-teams-ai.
 
-## Подтверждено
+## Подтверждённые результаты
 
-- На GitHub создан настоящий форк: https://github.com/potia-byte/agent-teams-ai.
-  GitHub API подтверждает `fork: true`, родитель — `777genius/agent-teams-ai`.
-- Оригинальный HEAD при проверке: `846ed19df0a2459aad59fe6ebb802a7c4b7ab972`, версия package.json — 2.17.10.
-- Сеть Git восстановлена для отдельных процессов: удалены HTTP_PROXY/HTTPS_PROXY/ALL_PROXY,
-  переданы `-c http.proxy= -c https.proxy= -c http.sslBackend=openssl -c http.sslVerify=true`.
-  Проверка сертификатов включена. Глобальные настройки не менялись.
-- Ошибка Schannel при прямом подключении: SEC_E_NO_CREDENTIALS (0x8009030e).
-  С OpenSSL `ls-remote` успешен.
-- GitHub CLI авторизован как potia-byte. Первое сообщение о недействительном токене
-  было следствием недоступного прокси; прямой `gh api user` успешен.
-- Локальные исходники Agent Teams AI при ограниченном поиске Git-копий в профиле пользователя
-  не найдены. Установленное приложение и другие проекты не менялись.
-- Ранее созданные `company/`, pyproject.toml, .gitignore и пустой .git сохранены в
-  `.abandoned-prototype/`; их разработка прекращена.
-- MASTER_PROMPT.md прочитан полностью: фактически содержит PowerShell-скрипт запуска,
-  а не текст задания. Требования взяты из двух сообщений владельца.
+- Полностью восстановлены оригинальные исходники и Git-история, включая все
+  исторические blobs. git fsck --full завершился с exit 0; missing objects=0;
+  shallow=false. Promisor markers и partial-clone config сняты после проверки.
+  Доказательства в родительской .clone-recovery/verification.json и fsck.txt.
+  История исходного HEAD содержит 6367 коммитов. Все ветки/теги сохранены.
+- Крупные исторические объекты получены через официальный raw CDN с проверкой
+  Git SHA; архив 28 714 596 байт и runtime-blob 86 167 456 байт не запускались.
+  Последние 869 объектов получены по точным commit/path с проверкой каждого SHA.
+  Повторная докачка исключала уже сохранённые объекты.
+- Node 24.19.0 подходит требованиям. Corepack 0.35.0 подготовил pnpm 11.22.0
+  локально в .local-tools/corepack, без глобальных shims.
+- Владелец разрешил локальную бесплатную установку. Все зависимости lockfile
+  скачаны. После EPERM install-скриптов выполнен frozen install --ignore-scripts:
+  связаны 2291 пакет, скачано повторно 0. package.json и lockfile не менялись.
+- Electron 44.4.5 установлен в node_modules, бинарный файл существует; запуск
+  Electron в Node-режиме подтвердил electron=44.4.5, node=24.21.0, ABI=149.
+  Это не smoke приложения и не доказательство совместимости всех native modules.
+- better-sqlite3 12.11.1 для Node ABI 137 установлен штатным prebuild-install
+  из официального GitHub-релиза. Проверка SQLite :memory: select 1 успешна.
+  Electron ABI 149 ещё не собран/проверен; cpu-features/pty rebuild не подтверждён.
+- Полный pnpm typecheck прошёл (exit 0, основная и семь дополнительных конфигураций).
 
-## В процессе
+## Реальные изменения этой итерации
 
-- `app/`: неотфильтрованный clone оборвался после получения десятков MiB:
-  `RPC failed; curl 92 HTTP/2 stream 5 reset by server (error 0x8 CANCEL)`,
-  `64340 bytes of body are still expected`, `early EOF`, `invalid index-pack output`.
-  Git автоматически удалил свою неудачную папку. Успешным clone это не является.
-- `app-dev/`: настоящая рабочая копия оригинала, первоначально полученная через
-  `--filter=blob:none --no-checkout`: HEAD `846ed19d…`, 6367 коммитов в истории HEAD,
-  все удалённые ветки, shallow=false. Создана ветка `media-company/provider-fallback`.
-  Настроены origin на форк владельца и upstream на оригинал.
-  Batch-fetch всех 6745 уникальных blobs текущего дерева завершился успешно.
-  Восстановлены все 6774 отслеживаемых файла; `git diff --quiet HEAD` успешен,
-  исходное рабочее дерево до добавления журнала чистое.
-  Старый index.lock отменённого restore проверен: пустой, активных владельцев нет;
-  он перемещён в `.clone-recovery/index.lock.cancelled-restore` без удаления.
-  Выполняется дозагрузка 55889 исторических blobs группами по пути через HTTP/1.1.
-  Нужно дождаться нулевого списка missing objects,
-  снять partial-clone markers/config и выполнить полный fsck. До этого копию полной не считать.
-  Первый большой batch HTTP/1.1 также оборвался с curl 18 / early EOF. Исторический архив
-  `.runtime-download/agent-teams-runtime-darwin-arm64-v0.0.32.tar.gz` (28714596 байт)
-  получен через официальный raw.githubusercontent.com диапазонами bytes за 10,78 с.
-  Его Git SHA `06e9c7f97c876f0dd4c4f158839ac8e3e87b8454` независимо проверен перед hash-object.
-  Архив не распаковывался и не запускался. Старый downloader остановлен; продолжение
-  исключает все сохранённые объекты: на момент перезапуска оставалось 55120 blobs.
-  Подробности активных процессов и результат автоматического fsck — в STATUS.md рабочей
-  области уровнем выше репозитория и `.clone-recovery/verification.json` той же рабочей области.
-- `app-retry/`: остановленная повторная попытка HTTP/1.1; не использовать как рабочий репозиторий.
+- scripts/media-company-local.ps1: локальный Corepack, кэши, dev userData и Claude root;
+  процессное окружение восстанавливается после завершения. Verify проверен.
+- .gitignore: исключены .local-tools, загруженные пакеты и исполняемые файлы не коммитятся.
+- test/scripts/ciChangeScope.test.mts: исправлена Windows-совместимость утверждения
+  YAML (допускает CRLF и LF). Исправленный тест прошёл.
+- .github/workflows/media-company-verify.yml подготовлен и сохранён в отдельной
+  локальной ветке media-company/ci-workflow-blocked (2179a00dc). Его push заблокирован
+  scope workflow; в текущую рабочую ветку он не включён, существующие workflows неизменны.
+- Обновлены компактные журналы. Изменений src, интерфейса, package.json,
+  pnpm-lock.yaml и electron.vite.config.ts нет.
 
-## Продолжение
+## Что блокирует следующий этап
 
-1. Завершить докачку всех объектов в app-dev; проверить `git fsck --full`, `rev-parse --is-shallow-repository`,
-   отсутствие partialClone/promisor, наличие веток/тегов и чистоту исходного checkout.
-2. Remotes и рабочая ветка уже настроены; не создавать репозиторий заново.
-3. Локальные AGENTS.md, CLAUDE.md, guardrails и Git delivery policy прочитаны.
-4. Восстановление отсутствующих pnpm/зависимостей требует отдельного разрешения по пунктам 16/P1
-   MASTER PROMPT V2. Запрос уже отправлен; отсутствие ответа не считается разрешением.
-5. Выполнить сборку оригинала и проверки; только после успешной сборки реализовывать fallback.
+Исходная сборка не прошла. pnpm build остановился на esbuild в prebuild с
+spawn EPERM. Vitest и Node-вызовы Git с захватом вывода также блокируются;
+проверка через Node из Electron воспроизводит тот же EPERM.
+Нативный Electron rebuild получает EPERM. Системные права и sandbox не менялись.
 
-Штатная build entry point проверена напрямую через Node: MODULE_NOT_FOUND для
-`node_modules/electron-vite/bin/electron-vite.js`. Полная pnpm-сборка и prebuild не выполнялись.
+Новый workflow сохранён локально коммитом 2179a00dc, но GitHub отверг его push
+из-за отсутствия OAuth scope workflow. Права не расширялись. Dispatch исходного
+ci.yml возвращает 404: Actions API нового форка пока не зарегистрировал workflows.
+CI не запускался. Ветка media-company/baseline с 5ad88af38 отправлена успешно.
 
-Установленное приложение подтверждено read-only чтением package.json из app.asar: 2.17.10.
-Но его runtime/VERSION — 0.0.106, тогда как исходный runtime.lock.json требует 0.0.124.
-Не подставлять старый runtime как доказательство совместимости.
+## Следующая безопасная точка продолжения
 
-Пока не выполнены: успешная исходная сборка, fallback в Electron, запуск модифицированной версии,
-производственный и коммерческий MVP. Новых расходов нет.
+1. В среде с разрешёнными build subprocesses выполнить из app-dev:
+   ./scripts/media-company-local.ps1 Install, затем Build и Test.
+   Не менять системный Node, глобальные инструменты или рабочую установку приложения.
+2. Получить успешную исходную сборку; подготовить exact runtime 0.0.124 локально.
+   Установленный runtime 0.0.106 не подставлять вместо pin.
+3. Проверить DevMcp в изолированных каталогах .local-tools/state с тестовым проектом.
+4. Только после успешной исходной сборки расширить существующие recovery,
+   provider и lifecycle механизмы для CEO Claude/Codex; проверить checkpoints,
+   fencing, дедупликацию, restart, UNKNOWN и оба недоступны; затем добавить UI состояния.
+
+Fallback пока не реализован и не тестировался. Модифицированное приложение
+не запущено. Фабрика, установленный Agent Teams AI и другие проекты не менялись.
+Расходов, платных API, публикаций и коммерческих операций нет.
+Самостоятельный Python company остановлен; файлы сохранены в .abandoned-prototype.

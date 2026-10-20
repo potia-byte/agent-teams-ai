@@ -1,30 +1,58 @@
-# Фактически выполненные проверки — 20.10.2026
+﻿# Выполненные проверки — 20.10.2026
+
+Исходный Agent Teams AI 2.17.10, baseline 846ed19df0a2459aad59fe6ebb802a7c4b7ab972.
+Код src, package.json, pnpm-lock.yaml и electron.vite.config.ts пока совпадает
+с исходной версией.
+
+| Проверка | Фактический результат |
+| --- | --- |
+| Node / Corepack | 24.19.0 / 0.35.0; Node соответствует engines |
+| Локальный Corepack pnpm | 11.22.0, соответствует packageManager; без глобальных shims |
+| pnpm install --frozen-lockfile | Пакеты скачаны; EPERM на запуске install-скрипта better-sqlite3 |
+| pnpm install --frozen-lockfile --ignore-scripts | Успех: 2291 пакет связан, скачано повторно 0; нативный runtime не проверен |
+| pnpm typecheck | Успех, exit 0: основная и все семь дополнительных конфигураций |
+| pnpm build | Не прошёл: spawn EPERM в esbuild при tsx/prebuild |
+| Vitest recovery и install tests | Не начались: EPERM конфигурации; runner-loader также блокируется |
+| Node announcements tests, isolation=none | 14 тестов: 9 passed, 5 failed; набор в целом не прошёл |
+| Node ciChangeScope + dmgArtwork, isolation=none | 8 тестов: 6 passed, 2 failed; набор в целом не прошёл |
+| source-file-size / provisioning guards | Заблокированы: Node spawnSync git EPERM |
+| scripts/media-company-local.ps1 Verify | Успех: реальные Node 24.19.0 / pnpm 11.22.0 |
+| Push нового workflow | Отклонён: отсутствует OAuth scope workflow; CI не запускался |
+| Push media-company/baseline | Успех: 5ad88af38 в собственном форке |
+| Унаследованный CI workflow_dispatch | HTTP 404; Actions workflows API возвращает пустой список |
+| Claude / Codex CLI, ранее | 2.1.304 / 0.163.0; Claude Pro / ChatGPT авторизованы, LLM не вызывались |
+
+Логи в родительской .clone-recovery: baseline-build.log, baseline-typecheck.log,
+baseline-tests.log, baseline-node-tests.log, baseline-native-tests.log,
+pnpm-install.log, pnpm-link.log, postinstall-direct.log, electron-install.log.
+
+Не выполнялись: успешная полная сборка, Electron smoke, fallback, его имитационные
+или реальные CLI-тесты, публикации, коммерческие операции. Частично пройденные
+наборы не являются успешным baseline. Проверки Python-прототипа не относятся
+к готовности Electron-форка.
+
+Полнота Git фиксируется отдельно в STATUS.md и .clone-recovery/verification.json;
+до state=complete полную офлайн-копию проверенной не считать.
+
+Дополнительно после исправлений:
 
 | Проверка | Результат |
 | --- | --- |
-| MASTER_PROMPT.md, чтение всего файла | Содержит launcher PowerShell, не текст мастер-промпта |
-| Поиск существующих исходников | В проверенных Git-копиях профиля оригинал не найден; поиск ограничен глубиной/исключёнными cache/venv |
-| Git через исходный proxy | Сбой соединения с 127.0.0.1:9 |
-| Git напрямую через Schannel | SEC_E_NO_CREDENTIALS 0x8009030e |
-| Git напрямую через OpenSSL, sslVerify=true | ls-remote успешен; HEAD 846ed19d… |
-| GitHub API user и fork | potia-byte; форк существует, parent=777genius/agent-teams-ai |
-| Node | v24.19.0, соответствует engines исходника |
-| Corepack | 0.35.0, уже установлен |
-| pnpm | Отдельная команда не найдена; загрузка/установка не выполнялась |
-| Временный filtered clone | Завершена загрузка commit/tree-истории; is-shallow=false; HEAD содержит 6367 коммитов |
-| Полный unfiltered clone | Неуспешен: curl 92 HTTP/2 stream reset, early EOF; переход к дозагрузке объектов сохранённой копии |
-| Текущее оригинальное дерево | Все 6745 уникальных blobs получены; 6774 файла восстановлены; git diff --quiet HEAD успешен |
-| Build entry point оригинала через Node | MODULE_NOT_FOUND: node_modules/electron-vite/bin/electron-vite.js; зависимости отсутствуют |
-| Установленная версия, чтение app.asar | 2.17.10; установленный runtime 0.0.106 отличается от pin исходников 0.0.124 |
-| Node → Git, captured stdio | spawnSync git EPERM |
-| Node → Git, inherited stdio | Успех, Git 2.55.0 |
-| Исторический архив runtime через raw CDN | 28714596 байт за 10,78 с; 28 проверенных диапазонов; Git SHA совпал с 06e9c7f… |
-| claude --version | 2.1.304 |
-| codex --version | 0.163.0; предупреждения о недоступных alias/temp вне workspace |
-| claude auth status | loggedIn=true, подписка Claude Pro; персональные данные не сохранялись |
-| codex login status | Logged in using ChatGPT |
+| git fsck --full | PASS, exit 0; missing=0, shallow=false, promisor markers/config сняты |
+| Electron install с локальным electron_config_cache | PASS, exit 0; бинарный файл 44.4.5 существует |
+| Electron Node mode | electron=44.4.5, node=24.21.0, ABI=149; smoke приложения не выполнялся |
+| Node из Electron: captured child Git | EPERM воспроизводится |
+| SQLite Node prebuild и :memory: select 1 | PASS, официальный prebuilt 12.11.1 для Node ABI 137; не Electron ABI 149 |
+| ciChangeScope + dmgArtwork после CRLF fix | 7 passed, 1 failed на spawnSync git EPERM; набор в целом не прошёл |
 
-**Не выполнялись:** полноценная pnpm-сборка/prebuild оригинала, typecheck/Vitest оригинала,
-fallback внутри Electron, имитационный отказ внутри форка, реальные LLM-вызовы,
-модифицированный UI, публикации и коммерческие операции. Никаких успешных тестов
-отдельного Python-прототипа не переносить в отчёт готовности Agent Teams AI.
+Исправлена подтверждённая Windows-ошибка теста: regexp YAML ожидал только LF,
+теперь допускает CRLF. Утверждение политики CI не ослаблено. Остальные наблюдаемые
+сбои этих двух наборов связаны с запуском Git или созданием symlink в среде.
+
+Проверки исходных экспортированных политик на реальном списке файлов Git
+(перечисление отдельно, без заблокированного Node child process): source size
+3594 файла, нарушений 0; provisioning architecture нарушений 0. Это проверка
+тех же pure policies, не успешный запуск исходных CLI guards.
+Radix React 19 presence patch verifier: exit 0.
+Запускатель Verify: процессные переменные после выхода сравнены с исходными,
+все восстановлены. Результат PASS.

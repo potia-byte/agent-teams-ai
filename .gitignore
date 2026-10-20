@@ -81,6 +81,9 @@ remotion/*
 /.remote-profile-spike-staging/
 /_remote_profile_spike_stage/
 
+# Isolated fork build tools and caches; never commit downloaded executables.
+/.local-tools/
+
 # Deterministic announcement build output (edit landing/content/announcements).
 /landing/public/announcements/
 /landing/public/announcements.tmp-*/
