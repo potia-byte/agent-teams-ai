@@ -30,6 +30,11 @@ $environmentOverrides = @{
     XDG_DATA_HOME = Join-Path $toolRoot 'state/xdg/data'
     XDG_STATE_HOME = Join-Path $toolRoot 'state/xdg/state'
 }
+if ($Action -eq 'Install') {
+    # @electron/rebuild 4.2.0 hardcodes ~/.electron-gyp. Do not let this
+    # dependency-restoration command run its desktop postinstall outside the fork.
+    $environmentOverrides['AGENT_TEAMS_INSTALL_PROFILE'] = 'node-ci'
+}
 
 function Invoke-ProjectPnpm {
     param([string[]]$PnpmArguments)
@@ -80,7 +85,10 @@ try {
     }
     switch ($Action) {
         'Verify' { Write-Output "Node $nodeVersion; pnpm $pnpmVersion; checkout $projectRoot" }
-        'Install' { Invoke-ProjectPnpm -PnpmArguments @('install', '--frozen-lockfile', '--store-dir', (Join-Path $toolRoot 'pnpm-store')) }
+        'Install' {
+            Write-Output 'Restoring locked dependencies with node-ci profile; Electron native rebuild is a separate, unverified step.'
+            Invoke-ProjectPnpm -PnpmArguments @('install', '--frozen-lockfile', '--store-dir', (Join-Path $toolRoot 'pnpm-store'))
+        }
         'Build' { Invoke-ProjectPnpm -PnpmArguments @('build') }
         'Typecheck' { Invoke-ProjectPnpm -PnpmArguments @('typecheck') }
         'Test' { Invoke-ProjectPnpm -PnpmArguments @('exec', 'vitest', 'run', '--maxWorkers=1', 'test/features/team-runtime-recovery', 'test/scripts/postinstallElectron.test.ts', 'test/scripts/ensureElectronInstall.test.ts', 'src/main/utils/electronDevPathOverrides.test.ts') }
