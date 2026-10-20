@@ -15,31 +15,56 @@ $environmentOverrides = @{
     COREPACK_ENABLE_DOWNLOAD_PROMPT = '0'
     electron_config_cache = Join-Path $toolRoot 'electron-cache'
     npm_config_cache = Join-Path $toolRoot 'npm-cache'
+    npm_config_devdir = Join-Path $toolRoot 'node-gyp'
+    TEMP = Join-Path $toolRoot 'tmp'
+    TMP = Join-Path $toolRoot 'tmp'
     CLAUDE_DEV_RUNTIME_CACHE_ROOT = Join-Path $toolRoot 'runtime-cache'
+    CLAUDE_TERMINAL_PLATFORM_STAGE_DIR = Join-Path $projectRoot 'resources/terminal-platform'
+    CLAUDE_TERMINAL_PLATFORM_DOWNLOAD_ROOT = Join-Path $toolRoot 'terminal-platform-download'
     AGENT_TEAMS_ELECTRON_USER_DATA_DIR = Join-Path $toolRoot 'state/electron'
     AGENT_TEAMS_ELECTRON_CLAUDE_ROOT = Join-Path $toolRoot 'state/claude'
+    CLAUDE_CONFIG_DIR = Join-Path $toolRoot 'state/claude'
+    CODEX_HOME = Join-Path $toolRoot 'state/codex'
+    XDG_CONFIG_HOME = Join-Path $toolRoot 'state/xdg/config'
+    XDG_CACHE_HOME = Join-Path $toolRoot 'state/xdg/cache'
+    XDG_DATA_HOME = Join-Path $toolRoot 'state/xdg/data'
+    XDG_STATE_HOME = Join-Path $toolRoot 'state/xdg/state'
 }
 
 function Invoke-ProjectPnpm {
     param([string[]]$PnpmArguments)
-    & corepack pnpm @PnpmArguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "pnpm command failed with exit code $LASTEXITCODE"
+    # Windows PowerShell can turn ordinary native stderr into a terminating error
+    # under Stop when the caller redirects output. Use the actual process exit code.
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & corepack pnpm @PnpmArguments
+        $commandExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    if ($commandExitCode -ne 0) {
+        throw "pnpm command failed with exit code $commandExitCode"
     }
 }
 
 try {
     Set-Location -LiteralPath $projectRoot
+    if ($Action -in @('Dev', 'DevMcp')) {
+        foreach ($name in @('CLAUDE_DEV_RUNTIME_ROOT', 'CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH',
+                'CLAUDE_CLI_PATH', 'CLAUDE_TERMINAL_PLATFORM_ROOT', 'TERMINAL_PLATFORM_ROOT',
+                'CLAUDE_TERMINAL_DAEMON_BINARY', 'ELECTRON_OVERRIDE_DIST_PATH', 'ELECTRON_RUN_AS_NODE',
+                'AGENT_TEAMS_ORG_DEMO')) {
+            if ([Environment]::GetEnvironmentVariable($name, 'Process')) {
+                throw "Inherited $name conflicts with the isolated pinned-runtime launch. No launch performed."
+            }
+        }
+    }
     foreach ($name in $environmentOverrides.Keys) {
         $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
         [Environment]::SetEnvironmentVariable($name, $environmentOverrides[$name], 'Process')
-    }
-    # The owner's inherited localhost:9 proxy is broken. Preserve all other proxies.
-    foreach ($name in @('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY')) {
-        $value = [Environment]::GetEnvironmentVariable($name, 'Process')
-        if ($value -match '^http://127\.0\.0\.1:9/?$') {
-            $previousEnvironment[$name] = $value
-            [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+        if ([IO.Path]::IsPathRooted($environmentOverrides[$name])) {
+            [IO.Directory]::CreateDirectory($environmentOverrides[$name]) | Out-Null
         }
     }
     $nodeVersion = & node -p 'process.versions.node'
@@ -58,7 +83,7 @@ try {
         'Install' { Invoke-ProjectPnpm -PnpmArguments @('install', '--frozen-lockfile', '--store-dir', (Join-Path $toolRoot 'pnpm-store')) }
         'Build' { Invoke-ProjectPnpm -PnpmArguments @('build') }
         'Typecheck' { Invoke-ProjectPnpm -PnpmArguments @('typecheck') }
-        'Test' { Invoke-ProjectPnpm -PnpmArguments @('exec', 'vitest', 'run', '--maxWorkers=1', 'test/features/team-runtime-recovery', 'test/scripts/postinstallElectron.test.ts', 'test/scripts/ensureElectronInstall.test.ts') }
+        'Test' { Invoke-ProjectPnpm -PnpmArguments @('exec', 'vitest', 'run', '--maxWorkers=1', 'test/features/team-runtime-recovery', 'test/scripts/postinstallElectron.test.ts', 'test/scripts/ensureElectronInstall.test.ts', 'src/main/utils/electronDevPathOverrides.test.ts') }
         'Dev' { Invoke-ProjectPnpm -PnpmArguments @('dev') }
         'DevMcp' { Invoke-ProjectPnpm -PnpmArguments @('dev:mcp') }
     }
