@@ -70,3 +70,13 @@ Fallback пока не реализован и не тестировался. М
 не запущено. Фабрика, установленный Agent Teams AI и другие проекты не менялись.
 Расходов, платных API, публикаций и коммерческих операций нет.
 Самостоятельный Python company остановлен; файлы сохранены в .abandoned-prototype.
+
+## Доставка
+
+Коммит реализации подготовки: 3fd2809 (scripts/media-company-local.ps1,
+CRLF-исправление теста, .gitignore и журнал). Ветка отправлена в origin.
+Черновик PR: https://github.com/potia-byte/agent-teams-ai/pull/1.
+Main не менялся; merge не выполнялся. Требуемые независимый review и CI
+пока не получены. После создания PR Actions workflows/runs API также пусты.
+Подготовленный новый workflow остаётся только в локальной ветке
+media-company/ci-workflow-blocked, 2179a00dc.
