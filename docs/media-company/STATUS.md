@@ -1,4 +1,4 @@
-﻿# Состояние — 20.10.2026, Windows-диагностика
+# Состояние — 20.10.2026, Windows-диагностика
 
 Форк potia-byte/agent-teams-ai, media-company/build-bootstrap, draft PR #1.
 Начальный HEAD 7767fdb6c совпал с origin; рабочее дерево было чистым.
@@ -39,8 +39,8 @@ EPERM. Один main запуск также записал Mojo platform channe
 
 ## Пакет и продолжение
 
-.local-tools/diagnostics/windows-build-diagnostics-dad6b81ef.zip (96236 байт).
-SHA256: 3967b12f6a8a4935b4079907e6a26a59ebd30e05171279c715338c9b420011e8.
+.local-tools/diagnostics/windows-build-diagnostics-22fbeaf79.zip (96236 байт).
+SHA256: e82591eca5cd1af58995d103952fc950ee9b894adda6dfeb5d2c142251893b35.
 Внутри REPRODUCE.txt, исходники проверок с SHA, JSON и логи. Нет бинарников,
 зависимостей, профилей, crash dumps и секретов.
 
@@ -52,3 +52,9 @@ CEO fallback, checkpoints/fencing/dedup и русский UI переключе�
 они следуют после успешной исходной сборки. Typecheck и probes её не заменяют.
 Установленная версия, фабрика, боевые данные, системные настройки и GitHub scopes
 не менялись. Расходов, платных API, LLM-вызовов и merge нет.
+
+Дополнительный аудит header cache: @electron/rebuild4.2.0 жёстко использует
+~/.electron-gyp и игнорирует npm_config_devdir. Коммит22fbeaf79 переводит launcher
+Install в node-ci и восстанавливает прежний профиль, чтобы восстановление
+зависимостей не запускало этот postinstall вне форка. Boundary test прошёл со stub
+pnpm без установки. Это не успешный native rebuild; его ограничения остаются.

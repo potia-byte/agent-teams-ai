@@ -1,4 +1,4 @@
-﻿# Препятствия — 20.10.2026
+# Препятствия — 20.10.2026
 
 С абсолютными Node/Git/esbuild воспроизводится EPERM при pipe; inherit работает.
 Штатные build, Vitest и electron-rebuild требуют pipe/IPC. В реальном Electron PTY
@@ -24,3 +24,9 @@ CI ранее возвращал404. PR#1 остаётся draft, merge не в�
 
 После успешных build/native/Vitest и desktop smoke можно реализовывать CEO fallback.
 Пока нельзя объявлять приложение запускаемым или подменять сборку typecheck/probes.
+
+Header cache @electron/rebuild4.2.0 жёстко задан в ~/.electron-gyp. Launcher Install
+теперь принудительно использует node-ci: восстановление locked зависимостей не
+запускает desktop postinstall, который пишет туда. Это защитная граница, не
+выполненный native rebuild. Требуется локальный header cache для будущей native
+сборки без переназначения HOME/USERPROFILE или изменения системных настроек.

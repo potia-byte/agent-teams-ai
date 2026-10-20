@@ -33,3 +33,7 @@
 - До успешной исходной сборки/native/desktop smoke fallback не выдавать за готовый.
   Будущий переход требует подтверждённого отказа квоты, fencing, безопасного checkpoint
   и запрета повтора внешних действий с неизвестным исходом; не переносить session IDs.
+
+- Header cache @electron/rebuild4.2.0 нельзя считать перенесённым через npm_config_devdir:
+  он жёстко задан в ~/.electron-gyp. Launcher Install использует node-ci; native rebuild
+  отдельно требует локальных путей. HOME/USERPROFILE не переназначать.
