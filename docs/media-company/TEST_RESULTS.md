@@ -65,3 +65,22 @@ Install boundary test дополнен: stub pnpm подтвердил node-ci, 
 
 Воспроизведение: `./scripts/diagnostics/run-detached.ps1 -Name build -Command 'corepack pnpm build'`;
 smoke: `./scripts/diagnostics/run-app-smoke.ps1`.
+
+## 21.10.2026 (позже) - реальный desktop smoke с CDP на одноразовом проекте
+
+Реальные результаты. Электрон запущен с --remote-debugging-port=9333, изолированные userData и корень Claude в .local-tools/state (AGENT_TEAMS_ELECTRON_USER_DATA_DIR / AGENT_TEAMS_ELECTRON_CLAUDE_ROOT), HOME/USERPROFILE не менялись. Тестовый проект: .local-tools/smoke-project-20261021102942 (новый пустой git-репозиторий), команда smoke-team с одним lead, config.json создан вручную в изолированном корне. Драйвер: .local-tools/diagnostics/cdp.cjs (ws поверх CDP; playwright-core в node_modules нет). Запуск команды (Запустить) НЕ выполнялся, LLM-сессии и квота не использовались.
+
+| Проверка | Результат |
+| --- | --- |
+| Окно рендерится, window.electronAPI.ceoSupervisor есть | PASS |
+| Команда smoke-team видна в списке, TeamDetailView открывается | PASS |
+| Панель 'Директор CEO · Выключен', 'Основной провайдер: Codex · резервный: Claude' | PASS на пересобранном renderer; FAIL на исходном out/renderer (см. дефект 1) |
+| ceoSupervisor.read('smoke-team') | PASS: status 'disabled', roles primary=codex reserve=anthropic, epoch 0, history [], reason null, без ошибок |
+| Ошибки консоли | Нет ошибок CEO. Только 'team:getMessagesPage TEAM_HISTORY_UNAVAILABLE:listing_failed' (вероятно, нет каталога projects у синтетической команды; не относится к CEO) |
+| Скриншот | .local-tools/diagnostics/ceo-panel-smoke-20261021.png |
+
+Дефекты:
+1. Устаревшая сборка: out/renderer/assets/TeamDetailView-DjJofZAq.js (собрана 10:23:57) содержала литералы '?' вместо кириллицы во всех строках CEO-панели ('???????? CEO ? ????????'). Исходники (mtime 10:24:13, и в HEAD) корректны. Пересборка `electron-vite build` (без prebuild, лог rebuild-ev-20261021T073158.*) дала TeamDetailView-CcKXD9EE.js с правильным русским. Вывод: ранний build был сделан из испорченной по кодировке версии файлов; сборку из того состояния использовать нельзя.
+2. Известные, не новые: better-sqlite3 ABI137 vs 149 (откат на JSON), node-pty conpty_console_list_agent 'AttachConsole failed' при запуске без консоли, нет orchestrator CLI ('Runtime adapter bridge disabled').
+
+Не проверено: включение CEO (action enable), запуск команды, реальные сессии провайдеров, переключение на резерв.
