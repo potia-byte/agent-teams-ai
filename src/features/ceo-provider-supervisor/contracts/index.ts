@@ -1,4 +1,27 @@
 export type CeoProvider = 'anthropic' | 'codex';
+export type KnownCeoProvider = CeoProvider | 'opencode';
+export interface CeoProviderHealth {
+  availability: ExecutorAvailability;
+  verifiedAt: string | null;
+  cooldownUntil: string | null;
+  consecutiveFailures: number;
+  totalFailures: number;
+  lastProbeAt: string | null;
+  probeDay: string | null;
+  probesToday: number;
+  probeFailures: number;
+}
+
+export interface CeoTask {
+  id: string;
+  idempotencyKey: string;
+  kind: 'llm' | 'non_llm';
+  state: 'pending' | 'running' | 'blocked' | 'done';
+  lastSafeCheckpointId: string | null;
+  attempts: number;
+  provider: CeoProvider | null;
+  blockReason: 'reconciliation_required' | null;
+}
 export interface CeoProviderRoles {
   primary: CeoProvider;
   reserve: CeoProvider;
@@ -32,7 +55,8 @@ export interface CeoState {
   status: 'disabled' | 'active' | 'stopping' | 'starting' | 'waiting' | 'blocked';
   roles: CeoProviderRoles;
   owner: { provider: CeoProvider; runId: string; role: keyof CeoProviderRoles } | null;
-  providers: Record<CeoProvider, { availability: ExecutorAvailability; verifiedAt: string | null }>;
+  providers: Record<KnownCeoProvider, CeoProviderHealth>;
+  tasks: CeoTask[];
   checkpoint: CeoCheckpoint | null;
   handledRuns: string[];
   history: Array<{ at: string; epoch: number; event: string; provider?: CeoProvider }>;

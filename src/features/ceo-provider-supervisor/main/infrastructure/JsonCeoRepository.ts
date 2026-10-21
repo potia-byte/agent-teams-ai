@@ -7,6 +7,8 @@ import { atomicWriteAsync } from '@main/utils/atomicWrite';
 
 import { DEFAULT_CEO_PROVIDER_ROLES, emptyCeoState } from '../../core/domain/policy';
 
+import { validateSupervisorExtensions } from './validateSupervisorExtensions';
+
 import type { CeoState } from '../../contracts';
 import type { CeoRepository } from '../../core/application/CeoSupervisor';
 
@@ -87,6 +89,7 @@ function validateState(
     (state.reason !== null && typeof state.reason !== 'string')
   )
     throw new Error('Invalid CEO state');
+  validateSupervisorExtensions(state);
   if (state.checkpoint !== null) {
     const checkpoint = state.checkpoint;
     if (

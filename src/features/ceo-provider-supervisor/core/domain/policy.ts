@@ -1,3 +1,5 @@
+import { emptyProviderHealth, isSelectableProvider } from './providerRegistry';
+
 import type { CeoProvider, CeoProviderRoles, CeoState } from '../../contracts';
 
 export const DEFAULT_CEO_PROVIDER_ROLES: Readonly<CeoProviderRoles> = {
@@ -15,6 +17,7 @@ export interface CeoFailure {
   phase: 'sdk_retrying' | 'terminal';
   detail: string;
   statusCode?: number;
+  retryAfterMs?: number;
 }
 
 /** Intentionally narrow: a transport 429/retry-after is not subscription exhaustion. */
@@ -45,9 +48,11 @@ export function emptyCeoState(teamName: string, contextId: string): CeoState {
     owner: null,
     roles: { ...DEFAULT_CEO_PROVIDER_ROLES },
     providers: {
-      anthropic: { availability: 'UNKNOWN', verifiedAt: null },
-      codex: { availability: 'UNKNOWN', verifiedAt: null },
+      anthropic: emptyProviderHealth(),
+      codex: emptyProviderHealth(),
+      opencode: emptyProviderHealth(),
     },
+    tasks: [],
     checkpoint: null,
     handledRuns: [],
     history: [],
@@ -55,14 +60,13 @@ export function emptyCeoState(teamName: string, contextId: string): CeoState {
   };
 }
 
-export function selectReserve(state: CeoState): CeoProvider | null {
+export function selectReserve(state: CeoState, at?: string): CeoProvider | null {
   const previousProvider = state.owner?.provider ?? state.checkpoint?.provider;
   if (!previousProvider) return null;
   // Roles define preference, not a one-way handoff: either executor can exhaust quota.
   return (
     [state.roles.primary, state.roles.reserve].find(
-      (provider) =>
-        provider !== previousProvider && state.providers[provider].availability === 'AVAILABLE'
+      (provider) => provider !== previousProvider && isSelectableProvider(state, provider, at)
     ) ?? null
   );
 }

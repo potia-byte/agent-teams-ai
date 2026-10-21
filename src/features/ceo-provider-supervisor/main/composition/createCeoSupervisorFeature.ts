@@ -5,7 +5,10 @@ import { CeoSupervisor } from '../../core/application/CeoSupervisor';
 import { JsonCeoRepository, validateTeamName } from '../infrastructure/JsonCeoRepository';
 
 import type { CeoCommand, CeoProbeResult, CeoSupervisorApi } from '../../contracts';
+import type { CeoProvider, CeoTask } from '../../contracts';
+import type { AvailabilityProbePort } from '../../core/application/AvailabilityProbes';
 import type { CeoRuntime } from '../../core/application/CeoSupervisor';
+import type { CeoTaskPort } from '../../core/application/CeoTaskQueue';
 import type { CeoFailure } from '../../core/domain/policy';
 import type { IpcMain } from 'electron';
 
@@ -57,6 +60,8 @@ export function createCeoSupervisorFeature(deps: {
   runtime: CeoRuntime;
   onError(error: unknown): void;
   quiesceRecovery(teamName: string): Promise<unknown>;
+  availabilityProbe?: AvailabilityProbePort;
+  taskExecutor?: CeoTaskPort;
 }) {
   const contextId = deps.getContextId();
   const repository = new JsonCeoRepository(deps.teamsBasePath, contextId);
@@ -65,6 +70,8 @@ export function createCeoSupervisorFeature(deps: {
     runtime: deps.runtime,
     now: () => new Date().toISOString(),
     newId: randomUUID,
+    probe: deps.availabilityProbe,
+    taskExecutor: deps.taskExecutor,
   });
   const assertContext = (): void => {
     if (deps.getContextId() !== contextId)
@@ -97,6 +104,32 @@ export function createCeoSupervisorFeature(deps: {
   let disposed = false;
   return {
     api,
+    probeAvailability(teamName: string, provider: CeoProvider) {
+      assertContext();
+      validateTeamName(teamName);
+      if (!['anthropic', 'codex'].includes(provider)) throw new Error('Invalid CEO provider');
+      return supervisor.probeAvailability(teamName, provider);
+    },
+    taskQueue: {
+      read(teamName: string) {
+        assertContext();
+        validateTeamName(teamName);
+        return supervisor.tasks.read(teamName);
+      },
+      enqueue(
+        teamName: string,
+        task: Pick<CeoTask, 'id' | 'idempotencyKey' | 'kind' | 'lastSafeCheckpointId'>
+      ) {
+        assertContext();
+        validateTeamName(teamName);
+        return supervisor.tasks.enqueue(teamName, task);
+      },
+      dispatchNext(teamName: string) {
+        assertContext();
+        validateTeamName(teamName);
+        return supervisor.tasks.dispatchNext(teamName);
+      },
+    },
     observeProbe(result: CeoProbeResult) {
       assertContext();
       validateTeamName(result.teamName);

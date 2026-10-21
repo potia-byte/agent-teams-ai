@@ -1,7 +1,15 @@
-import { isConfirmedSubscriptionQuota, recordCeoEvent, selectReserve } from '../domain/policy';
+import { classifyFailure } from '../domain/failureClassifier';
+import { recordCeoEvent, selectReserve } from '../domain/policy';
+import { DEFAULT_PROBE_POLICY, probeBackoff } from '../domain/probePolicy';
+import { confirmProvider } from '../domain/providerRegistry';
+
+import { AvailabilityProbes } from './AvailabilityProbes';
+import { CeoTaskQueue } from './CeoTaskQueue';
 
 import type { CeoCommand, CeoProbeResult, CeoProvider, CeoState } from '../../contracts';
 import type { CeoFailure } from '../domain/policy';
+import type { AvailabilityProbePort } from './AvailabilityProbes';
+import type { CeoTaskPort } from './CeoTaskQueue';
 
 export interface CeoRepository {
   read(teamName: string): Promise<CeoState>;
@@ -25,16 +33,24 @@ export interface CeoRuntime {
 }
 
 export class CeoSupervisor {
+  readonly tasks: CeoTaskQueue;
+  private readonly probes?: AvailabilityProbes;
   constructor(
     private readonly ports: {
       repository: CeoRepository;
       runtime: CeoRuntime;
       now(): string;
       newId(): string;
+      probe?: AvailabilityProbePort;
+      taskExecutor?: CeoTaskPort;
     }
-  ) {}
+  ) {
+    this.tasks = new CeoTaskQueue({ ...ports, executor: ports.taskExecutor });
+    if (ports.probe) this.probes = new AvailabilityProbes({ ...ports, probe: ports.probe });
+  }
 
-  read(teamName: string): Promise<CeoState> {
+  async read(teamName: string): Promise<CeoState> {
+    await this.tasks.read(teamName);
     const { repository, runtime, now } = this.ports;
     return repository.exclusive(teamName, (state, save) =>
       runtime.exclusive(teamName, async () => {
@@ -55,6 +71,7 @@ export class CeoSupervisor {
   }
 
   async command(command: CeoCommand): Promise<CeoState> {
+    await this.tasks.read(command.teamName);
     const { repository, runtime, now, newId } = this.ports;
     return repository.exclusive(command.teamName, (state, save) =>
       runtime.exclusive(command.teamName, async () => {
@@ -70,7 +87,7 @@ export class CeoSupervisor {
           };
           state.status = 'active';
           state.epoch++;
-          state.providers[current.provider] = { availability: 'BUSY', verifiedAt: now() };
+          confirmProvider(state.providers[current.provider], now(), true);
           recordCeoEvent(state, now(), 'enabled', current.provider);
           if (state.owner.role === 'reserve')
             recordCeoEvent(state, now(), 'running_on_reserve', current.provider);
@@ -96,16 +113,13 @@ export class CeoSupervisor {
         } else if (command.action === 'available') {
           const provider = command.provider!;
           // Explicit operator health evidence; installation/auth alone is never evidence.
-          state.providers[provider] = {
-            availability: state.owner?.provider === provider ? 'BUSY' : 'AVAILABLE',
-            verifiedAt: now(),
-          };
+          confirmProvider(state.providers[provider], now(), state.owner?.provider === provider);
           recordCeoEvent(state, now(), 'availability_confirmed', provider);
         }
         await save();
         if (
           (command.action === 'retry' ||
-            (command.action === 'available' && command.provider === selectReserve(state))) &&
+            (command.action === 'available' && command.provider === selectReserve(state, now()))) &&
           state.status === 'waiting'
         ) {
           await this.continueHandoff(state, save);
@@ -116,22 +130,34 @@ export class CeoSupervisor {
   }
 
   async observeProbe(result: CeoProbeResult): Promise<CeoState> {
+    await this.tasks.read(result.teamName);
     const { repository, now } = this.ports;
     return repository.exclusive(result.teamName, async (state, save) => {
       // Health evidence is deliberately separate from handoff orchestration.
       // Even a successful primary probe leaves an active reserve untouched.
-      state.providers[result.provider] = {
-        availability: state.owner?.provider === result.provider ? 'BUSY' : result.availability,
-        verifiedAt: now(),
-      };
+      // This legacy input is trusted explicit passive health evidence, not CLI auth status.
+      const health = state.providers[result.provider];
+      if (result.availability === 'AVAILABLE') {
+        confirmProvider(health, now(), state.owner?.provider === result.provider);
+      } else {
+        health.availability =
+          state.owner?.provider === result.provider ? 'BUSY' : result.availability;
+        health.verifiedAt = now();
+      }
       recordCeoEvent(state, now(), 'availability_probed', result.provider);
       await save();
       return structuredClone(state);
     });
   }
 
+  probeAvailability(teamName: string, provider: CeoProvider): Promise<CeoState> {
+    if (!this.probes) throw new Error('No cheap availability probe configured');
+    return this.probes.run(teamName, provider);
+  }
+
   /** Returns true when this role owns recovery, suppressing competing retry/nudge delivery. */
   async observe(failure: CeoFailure): Promise<boolean> {
+    await this.tasks.read(failure.teamName);
     const { repository, runtime, now } = this.ports;
     return repository.exclusive(failure.teamName, (state, save) =>
       runtime.exclusive(failure.teamName, async () => {
@@ -139,7 +165,7 @@ export class CeoSupervisor {
         if (await this.blockInterruptedHandoff(state, save)) return true;
         // This role has one recovery owner. Do not let the legacy nudge scheduler
         // race the supervisor, including during SDK retries preceding terminal quota.
-        if (!isConfirmedSubscriptionQuota(failure)) return true;
+        const classification = classifyFailure(failure);
         if (failure.epoch !== undefined && failure.epoch !== state.epoch) return true;
         if (state.handledRuns.includes(failure.runId)) return true;
         if (
@@ -155,7 +181,32 @@ export class CeoSupervisor {
           current.provider !== state.owner.provider
         )
           return true;
-        state.providers[state.owner.provider] = { availability: 'RATE_LIMITED', verifiedAt: now() };
+        const health = state.providers[state.owner.provider];
+        health.consecutiveFailures++;
+        health.totalFailures++;
+        health.verifiedAt = now();
+        if (['QUOTA_CONFIRMED', 'RATE_LIMIT_TRANSIENT'].includes(classification.kind)) {
+          health.availability = 'RATE_LIMITED';
+          const retryMs = Number.isFinite(failure.retryAfterMs)
+            ? Math.max(0, failure.retryAfterMs!)
+            : 0;
+          health.cooldownUntil = new Date(
+            Date.parse(now()) +
+              Math.max(retryMs, probeBackoff(health.consecutiveFailures, DEFAULT_PROBE_POLICY))
+          ).toISOString();
+        } else if (classification.kind === 'AUTH_REQUIRED') {
+          health.availability = 'AUTH_REQUIRED';
+        }
+        if (classification.kind !== 'QUOTA_CONFIRMED') {
+          recordCeoEvent(
+            state,
+            now(),
+            'failure_' + classification.kind.toLowerCase(),
+            state.owner.provider
+          );
+          await save();
+          return true;
+        }
         state.handledRuns.push(failure.runId);
         state.epoch++;
         recordCeoEvent(state, now(), 'quota_confirmed', state.owner.provider);
@@ -221,7 +272,7 @@ export class CeoSupervisor {
       await save();
       return;
     }
-    const provider = selectReserve(state);
+    const provider = selectReserve(state, now());
     if (!provider) {
       state.reason = 'no_available_executor';
       recordCeoEvent(state, now(), 'waiting_for_executor');

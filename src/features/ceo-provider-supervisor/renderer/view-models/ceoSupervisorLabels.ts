@@ -12,7 +12,7 @@ export const statusLabels: Record<CeoState['status'], string> = {
 export const availabilityLabels: Record<ExecutorAvailability, string> = {
   AVAILABLE: 'Доступен',
   BUSY: 'Занят',
-  RATE_LIMITED: 'Квота исчерпана',
+  RATE_LIMITED: 'Ограничен; ожидание восстановления',
   AUTH_REQUIRED: 'Нужен вход в аккаунт',
   UNAVAILABLE: 'Недоступен',
   UNKNOWN: 'Доступность не проверена',
@@ -46,6 +46,12 @@ export const eventLabels: Record<string, string> = {
   handoff_outcome_unknown: 'Результат передачи неизвестен',
   runtime_ownership_unknown: 'Текущий исполнитель не подтверждён',
   interrupted_handoff: 'Переключение прервано',
+  failure_rate_limit_transient: 'Временное ограничение; переключение не выполняется',
+  failure_network: 'Ошибка сети; переключение не выполняется',
+  failure_auth_required: 'Нужен вход в аккаунт; переключение заблокировано',
+  failure_tool_error: 'Ошибка инструмента; нужна сверка результата',
+  'failure_hang/timeout': 'Зависание или тайм-аут; нужна сверка результата',
+  failure_unknown_failure: 'Неизвестный сбой; автоматическое переключение запрещено',
 };
 
 export function historyTimestamp(at: string): string {
