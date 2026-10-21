@@ -13,6 +13,7 @@ import {
 } from 'react';
 
 import { useAppTranslation } from '@features/localization/renderer';
+import { CeoSupervisorPanel } from '@features/ceo-provider-supervisor/renderer';
 import {
   assertMemberSettingsRelaunchRoster,
   type MemberSettingsRelaunchDraft,
@@ -744,8 +745,6 @@ const LeadLoadBridge = memo(function LeadLoadBridge({
       setSelectedContextPhaseForTab: s.setSelectedContextPhaseForTab,
     }))
   );
-  // const [isContextButtonHovered, setIsContextButtonHovered] = useState(false);
-
   const setContextPanelVisible = useCallback(
     (visible: boolean) => {
       if (!tabId) return;
@@ -2859,6 +2858,7 @@ export const TeamDetailView = memo(function TeamDetailView({
     return (
       <>
         {pinnedVisualizeButtonPosition && !expandedChat ? renderTeamActionButtons(true) : null}
+        <CeoSupervisorPanel teamName={teamName} />
         <div className="relative flex size-full overflow-hidden">
           <LeadLoadBridge
             teamName={teamName}

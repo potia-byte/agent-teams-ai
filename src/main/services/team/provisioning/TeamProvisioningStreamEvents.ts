@@ -51,6 +51,7 @@ const HANDLED_STREAM_JSON_TYPES = new Set([
 ]);
 
 export interface TeamProvisioningStreamRun {
+  ceoEffectRevision?: number;
   runId: string;
   teamName: string;
   detectedSessionId: string | null;
@@ -691,6 +692,7 @@ export function handleTeamProvisioningStreamJsonMessage<TRun extends TeamProvisi
       !run.cancelRequested &&
       run.progress.state !== 'failed'
     ) {
+      if (content.some((block) => block.type === 'tool_use')) run.ceoEffectRevision = (run.ceoEffectRevision ?? 0) + 1;
       ports.setLeadActivity(run, 'active');
     }
 

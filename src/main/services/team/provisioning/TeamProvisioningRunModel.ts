@@ -50,6 +50,8 @@ export interface PendingMemberRestartContext {
 }
 
 export interface ProvisioningRun {
+  /** Conservative fence: any observed tool use invalidates an older CEO checkpoint. */
+  ceoEffectRevision?: number;
   runId: string;
   teamName: string;
   startedAt: string;

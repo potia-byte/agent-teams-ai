@@ -141,6 +141,7 @@ import type {
 import type { OrganizationsElectronApi } from '@features/organizations/contracts';
 import type { ProjectFolderElectronApi } from '@features/project-folder/contracts';
 import type { RecentProjectsElectronApi } from '@features/recent-projects/contracts';
+import type { CeoSupervisorElectronApi } from '@features/ceo-provider-supervisor/contracts';
 import type { RuntimeProviderManagementApi } from '@features/runtime-provider-management/contracts';
 import type { TeamGroupChatsAPI } from '@features/team-group-chats/contracts';
 import type { TeamImportApi } from '@features/team-import/contracts';
@@ -854,6 +855,7 @@ export interface ReviewAPI {
 export interface ElectronAPI
   extends
     RecentProjectsElectronApi,
+    CeoSupervisorElectronApi,
     CodexAccountElectronApi,
     TokenUsageElectronApi,
     ProjectFolderElectronApi {

@@ -1,4 +1,5 @@
 import { createAnnouncementsBridge } from '@features/announcements/preload';
+import { createCeoSupervisorBridge } from '@features/ceo-provider-supervisor/preload';
 import { createAppCloseCoordinationBridge } from '@features/app-close-coordination/preload';
 import { createCodexAccountBridge } from '@features/codex-account/preload';
 import { createCodexRuntimeInstallerBridge } from '@features/codex-runtime-installer/preload';
@@ -509,6 +510,7 @@ ipcRenderer.on(
 
 const electronAPI: ElectronAPI = {
   externalAgentConnection: createExternalAgentConnectionBridge(ipcRenderer),
+  ceoSupervisor: createCeoSupervisorBridge(ipcRenderer),
   appCloseCoordination: createAppCloseCoordinationBridge(ipcRenderer),
   ...createCodexAccountBridge({
     ipcRenderer,

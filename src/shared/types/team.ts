@@ -870,6 +870,8 @@ export interface ProviderModelLaunchIdentity {
 }
 
 export interface TeamLaunchRequest extends TeamProvisioningTypes.LocalModelLaunchOptions {
+  /** Internal launch constraint, checked before runtime spawn; never relaxes auth. */
+  requiredBillingMode?: 'subscription';
   teamName: string;
   cwd: string;
   prompt?: string;

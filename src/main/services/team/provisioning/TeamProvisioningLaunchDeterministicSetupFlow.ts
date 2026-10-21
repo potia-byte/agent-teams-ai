@@ -425,6 +425,9 @@ export async function prepareDeterministicLaunchSetup<TMixedSecondaryLane>(
       providerArgsByProvider,
     });
 
+    if (request.requiredBillingMode && launchIdentity.billingMode !== request.requiredBillingMode) {
+      throw new Error('CEO_SUBSCRIPTION_REQUIRED: API or unknown billing route cannot be launched');
+    }
     const syntheticRequest = buildLaunchSyntheticRequest({
       request,
       members: allEffectiveMemberSpecs,

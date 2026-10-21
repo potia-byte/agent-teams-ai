@@ -32,6 +32,7 @@ const TEAM_PROVISIONING_SERVICE_CLASS_NAME = 'TeamProvisioningService';
 const DECLARED_PUBLIC_SERVICE_ENTRYPOINTS = [
   'assessLeadRuntimeRestart',
   'createTeam',
+  'createCeoRuntime',
   // The launch prompt reaches the lead through the inbox rather than the
   // orchestrator leadPrompt, and the launch flow drives it from outside.
   'deliverOpenCodeLaunchPromptToLead',
@@ -53,6 +54,7 @@ const DOCUMENTED_EFFECTIVE_PUBLIC_SERVICE_INSTANCE_MEMBERS = [
   'cleanupPrelaunchBackup',
   'clearPendingCrossTeamReplyExpectation',
   'createTeam',
+  'createCeoRuntime',
   'deliverOpenCodeLaunchPromptToLead',
   'deliverOpenCodeMemberMessage',
   'deliverOpenCodeRuntimeMessage',

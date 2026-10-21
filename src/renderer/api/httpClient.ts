@@ -10,6 +10,7 @@ import {
   createEmptyMemberLogStreamResponse,
   createEmptyMemberRuntimeLogTailResponse,
 } from '@features/member-log-stream/contracts';
+import type { CeoSupervisorApi } from '@features/ceo-provider-supervisor/contracts';
 import {
   type AssignOrganizationTeamRequest,
   type CreateOrganizationRequest,
@@ -259,6 +260,7 @@ export class HttpAPIClient implements ElectronAPI {
   }
 
   private baseUrl: string;
+  ceoSupervisor: CeoSupervisorApi = { read: async () => { throw new Error('CEO supervisor requires the desktop app'); }, command: async () => { throw new Error('CEO supervisor requires the desktop app'); } };
   private eventSource: EventSource | null = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- event callbacks have varying signatures
   private eventListeners = new Map<string, Set<(...args: any[]) => void>>();
