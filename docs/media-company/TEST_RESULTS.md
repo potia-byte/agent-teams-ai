@@ -118,3 +118,33 @@ node scripts/diagnostics/team-e2e-run.cjs ... --provider anthropic --model haiku
 3. Первая версия детектора ответа дала ложный PASS для anthropic (совпал старый транскрипт codex в том же cwd); исправлено фильтром по времени запуска (startIso), ложный прогон не засчитан.
 4. Codex использует реальную авторизацию ~/.codex (CODEX_HOME не переопределялся, -UseRealProviderAuth); сессии ephemeral. Квота: 1 запрос codex (первая попытка с gpt-5.4-mini отклонена до запуска) и 2 запроса anthropic (1 с ошибкой авторизации без токенов, 1 успешный).
 5. Дерево процессов app после stop: остаются electron.exe (gpu/network/renderer) и mcp-server node (принадлежат app); убиты `taskkill /PID <electron pid> /T /F`. Процессов payload-v1/run-t1 после этого не осталось.
+
+## 21.10.2026 (поздно) - CEO e2e в собранном app (codex REAL + синтетический квотный сигнал), Claude-часть NOT VERIFIED
+
+Драйвер: scripts/diagnostics/ceo-e2e-run.cjs (прогон `--tag ceo6`, журнал .local-tools/diagnostics/ceo-e2e-ceo6.log). Лаунчер: launch-isolated-app.ps1 получил параметр `-QuotaSignalFile` (создаёт без обрезки <userdata>\e2e-quota-signal.jsonl и ставит AGENT_TEAMS_E2E_QUOTA_SIGNAL_FILE) и пишет pid в <state>\electron.pid. Проект: .local-tools/ceo-e2e-project-ceo6 (новый git). Коммитов нет, HOME/USERPROFILE не менялись, ~/.claude не трогался.
+По указанию владельца копирование OAuth/credentials между профилями ЗАПРЕЩЕНО: seed-код из драйвера удалён, seed-isolated-claude-auth.cjs не использовался. Итог проверки: .credentials.json под .local-tools/state не найдено, в логах .local-tools/diagnostics секретов (eyJ/sk-/token/Bearer) нет.
+
+REAL: app, solo-lead codex gpt-5.6-luna (claude-multimodel 0.124 через лаунчер), IPC ceoSupervisor.read/command, stop через TeamProvisioningService, kill/relaunch app, процессы. SYNTHETIC: только JSONL-строки квоты (3 + 2 шт).
+
+| Шаг | Результат |
+| --- | --- |
+| 1 codex lead создан, ready | PASS (REAL) |
+| 2 enable -> owner codex/primary, epoch 1; checkpoint с effects op-1 confirmed | PASS (REAL) |
+| 3 anthropic available + auth | NOT VERIFIED: нет стандартной auth Claude в изолированном root, копировать секреты запрещено |
+| 4 (сокращён) синтетическая codex-квота x2 при резерве UNKNOWN | PASS: старое дерево lead/codex исчезло, epoch 1->2 один раз, status waiting / reason no_available_executor, owner null, history enabled>checkpoint_saved>quota_confirmed>waiting_for_executor, дубль не обработан (handledRuns 1, 2 строки доставлены), новый launch отсутствует, aliveList [] (SYNTHETIC сигнал, REAL остановка) |
+| 4 (замещающий Claude lead, транскрипт без старого session id, ровно один запуск), 5, 6 | NOT VERIFIED (нужен живой Claude) |
+| 7 kill app (taskkill /T /F по pid), relaunch с тем же userData | PASS: выживших процессов нет; состояние сохранено (epoch 2, checkpoint, history, handledRuns); fail-closed: waiting/no_available_executor, owner null; за 25 с и 3 чтения новых lead не запускалось, history не менялась |
+| 7 устаревшие/чужие runId (старый реальный runId и 2 stale) x3 строки | PASS: доставлены (3), состояние не изменилось, запусков нет |
+| 8 cleanup | PASS: teams.stop ok, процессов прогона нет, credentials нет |
+
+Примечание: так как owner был снят до рестарта (waiting), проверка blocked/runtime_ownership_unknown и interrupted_handoff в этом сценарии не достигнута (для неё нужен активный owner при kill app); не проверено.
+
+SQLite: JSON-хранилище хватило, ничего не заблокировано. Текст: `[Feature:InternalStorage] internal-storage sqlite backend unavailable; falling back to JSON stores for this session Error: better-sqlite3 native module pin failed: ... better_sqlite3.node was compiled against NODE_MODULE_VERSION 137 ... requires NODE_MODULE_VERSION 149` (src/features/internal-storage/main/infrastructure/internalStorageNativeDriver.ts:41, фолбэк в composition/InternalStorageBackendSelector.ts:62). Нативные модули не пересобирались.
+
+Наблюдения: приложение запускает много кратковременных claude-multimodel (пробы без --input-format); lead определяется по --input-format. Запросы к провайдеру: 1 (codex).
+
+### 21.10.2026 — финальная проверка (Codex-часть, перезапуск, русский интерфейс)
+
+- seed-isolated-claude-auth.cjs удалён из репозитория по указанию владельца: копирование OAuth между профилями запрещено. Записи выше о временной копии для anthropic — исторические; код копирования больше не существует, `.credentials.json` под `.local-tools` не найден.
+- Финальная сборка `pnpm build` (HEAD c0d43c828 + правки диагностики) запущена повторно с профилем ceo6: окно создаётся, панель «Директор CEO · Ожидание исполнителя» читает сохранённое после перезапуска состояние (поколение 2, Codex: «Квота исчерпана», Claude: «Доступность не проверена»), роли «Основной провайдер: Codex · резервный: Claude», история переключений на русском, строк с «????» нет. РЕАЛЬНАЯ проверка (UI через CDP).
+- Сигнал квоты СИНТЕТИЧЕСКИЙ (инжектор); процессы Codex РЕАЛЬНЫЕ. Переходы с участием живого Claude (Codex→Claude, Claude→Codex) НЕ ПРОВЕРЕНЫ: нет штатной авторизации Claude в изолированном профиле.
