@@ -105,7 +105,7 @@ export class CeoSupervisor {
         await save();
         if (
           (command.action === 'retry' ||
-            (command.action === 'available' && command.provider === state.roles.reserve)) &&
+            (command.action === 'available' && command.provider === selectReserve(state))) &&
           state.status === 'waiting'
         ) {
           await this.continueHandoff(state, save);
@@ -250,7 +250,11 @@ export class CeoSupervisor {
       const current = await runtime.inspect(state.teamName);
       if (current?.runId !== runId || current.provider !== provider)
         throw new Error('Replacement ownership unproven');
-      state.owner = { provider, runId, role: 'reserve' };
+      state.owner = {
+        provider,
+        runId,
+        role: provider === state.roles.primary ? 'primary' : 'reserve',
+      };
       state.status = 'active';
       recordCeoEvent(state, now(), 'owner_committed', provider);
       await save();

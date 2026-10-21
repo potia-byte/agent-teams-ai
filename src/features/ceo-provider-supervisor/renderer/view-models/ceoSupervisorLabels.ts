@@ -23,7 +23,7 @@ export const reasonLabels: Record<string, string> = {
   unsafe_checkpoint_or_unknown_effect:
     'Нет безопасной контрольной точки или результат действия неизвестен',
   handoff_outcome_unknown: 'Результат остановки или передачи управления неизвестен',
-  no_available_executor: 'Нет доступного резервного исполнителя, отличного от предыдущего',
+  no_available_executor: 'Нет доступного исполнителя, отличного от предыдущего',
   launch_outcome_unknown: 'Результат запуска неизвестен; повторный запуск заблокирован',
 };
 export const eventLabels: Record<string, string> = {
@@ -35,7 +35,7 @@ export const eventLabels: Record<string, string> = {
   quota_confirmed: 'Квота исчерпана',
   starting_fresh_session: 'Запуск новой сессии',
   owner_committed: 'Исполнитель назначен',
-  waiting_for_executor: 'Ожидание доступного резервного исполнителя',
+  waiting_for_executor: 'Ожидание доступного исполнителя',
   manual_reconciliation_required: 'Требуется сверка действий',
   launch_outcome_unknown: 'Результат запуска неизвестен',
   handoff_outcome_unknown: 'Результат передачи неизвестен',

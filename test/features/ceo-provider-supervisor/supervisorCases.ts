@@ -213,14 +213,17 @@ export function registerSupervisorCases(
       assert.equal(fixture.stops.length, 0);
     });
   }
-  test('reserve selection respects configured roles and excludes both live and retired owner', () => {
+  test('executor selection requires a different AVAILABLE provider and respects configured priority', () => {
     const state = emptyCeoState(quota.teamName, 'test');
     state.providers.codex.availability = state.providers.anthropic.availability = 'AVAILABLE';
+    assert.equal(selectReserve(state), null, 'the previous provider must be known');
+    state.owner = { provider: 'anthropic', runId: 'old', role: 'reserve' };
+    assert.equal(selectReserve(state), 'codex');
     state.roles = { primary: 'anthropic', reserve: 'codex' };
     state.owner = { provider: 'anthropic', runId: 'old', role: 'primary' };
     assert.equal(selectReserve(state), 'codex');
     state.owner = { provider: 'codex', runId: 'old', role: 'reserve' };
-    assert.equal(selectReserve(state), null);
+    assert.equal(selectReserve(state), 'anthropic');
     state.checkpoint = {
       id: 'point',
       runId: 'old',
@@ -231,10 +234,18 @@ export function registerSupervisorCases(
       savedAt: 'now',
     };
     state.owner = null;
-    assert.equal(selectReserve(state), null);
+    assert.equal(selectReserve(state), 'anthropic');
     state.checkpoint.provider = 'anthropic';
-    state.providers.codex.availability = 'UNKNOWN';
-    assert.equal(selectReserve(state), null);
+    for (const availability of [
+      'UNKNOWN',
+      'BUSY',
+      'RATE_LIMITED',
+      'AUTH_REQUIRED',
+      'UNAVAILABLE',
+    ] as const) {
+      state.providers.codex.availability = availability;
+      assert.equal(selectReserve(state), null);
+    }
   });
   test('quota stops exact Codex owner then launches configured Claude reserve with a fresh session', async () => {
     const fixture = supervisorFixture();
@@ -449,38 +460,37 @@ export function registerSupervisorCases(
     await fixture.supervisor.command({ teamName: quota.teamName, action: 'retry' });
     assert.equal(fixture.launches.length, 1);
   });
-  test('reserve quota never falls back to recovered primary or relaunches the same reserve', async () => {
-    const fixture = supervisorFixture();
+  test('enabled Claude owner waits across restart until Codex availability is confirmed', async () => {
+    const fixture = supervisorFixture('anthropic');
     await fixture.prepare();
-    await fixture.supervisor.observe(quota);
-    const reserve = fixture.state().owner!;
-    await fixture.supervisor.command({
-      teamName: quota.teamName,
-      action: 'available',
-      provider: 'codex',
-    });
-    await fixture.supervisor.command({
-      teamName: quota.teamName,
-      action: 'checkpoint',
-      summary: 'Next render',
-      effects: [],
-    });
     await fixture.supervisor.observe({
       ...quota,
       providerId: 'anthropic',
-      runId: reserve.runId,
+      runId: 'anthropic-run',
       detail: "You've hit your limit",
     });
-    await fixture.supervisor.command({
+    const restarted = fixture.create();
+    await restarted.command({
       teamName: quota.teamName,
       action: 'available',
       provider: 'anthropic',
     });
-    await fixture.supervisor.command({ teamName: quota.teamName, action: 'retry' });
+    await restarted.command({ teamName: quota.teamName, action: 'retry' });
+    await restarted.observeProbe({
+      teamName: quota.teamName,
+      provider: 'codex',
+      availability: 'AVAILABLE',
+    });
     assert.equal(fixture.state().status, 'waiting');
     assert.equal(fixture.state().owner, null);
+    assert.equal(fixture.launches.length, 0);
+    assert.equal(fixture.stops.length, 1);
+    await restarted.command({ teamName: quota.teamName, action: 'available', provider: 'codex' });
+    assert.equal(fixture.state().status, 'active');
+    assert.equal(fixture.state().owner?.provider, 'codex');
+    assert.equal(fixture.state().owner?.role, 'primary');
     assert.equal(fixture.launches.length, 1);
-    assert.equal(fixture.stops.length, 2);
+    assert.equal(fixture.stops.length, 1);
   });
   test('unknown external effect blocks continuation and all subsequent commands preserve its key', async () => {
     const fixture = supervisorFixture();

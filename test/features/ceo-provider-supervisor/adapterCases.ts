@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 
+import { CeoSupervisor } from '../../../src/features/ceo-provider-supervisor/core/application/CeoSupervisor';
 import { JsonCeoRepository } from '../../../src/features/ceo-provider-supervisor/main/infrastructure/JsonCeoRepository';
 import { createProvisioningCeoRuntime } from '../../../src/main/services/team/provisioning/TeamProvisioningCeoRuntime';
 
 import { quota, supervisorFixture } from './supervisorCases';
 
+import type { CeoProvider } from '../../../src/features/ceo-provider-supervisor/contracts';
+import type { CeoFailure } from '../../../src/features/ceo-provider-supervisor/core/domain/policy';
 import type { ProvisioningRun } from '../../../src/main/services/team/provisioning/TeamProvisioningRunModel';
 import type { TeamLaunchRequest } from '../../../src/shared/types';
 
@@ -121,6 +124,185 @@ export function registerAdapterCases(
       assert.equal(state.owner?.provider, 'codex');
       assert.equal(state.owner?.role, 'reserve');
       assert.equal(fixture.launches.length, 1);
+    } finally {
+      await removeTestStore(directory);
+    }
+  });
+  test('full cycle Codex -> Claude -> Codex persists fences and starts fresh only after confirmed stops', async () => {
+    const directory = await mkdtemp(join(storeParent, '.store-'));
+    try {
+      const lifecycle: string[] = [];
+      const launches: TeamLaunchRequest[] = [];
+      const makeRun = (runId: string, provider: CeoProvider, request?: TeamLaunchRequest) =>
+        ({
+          runId,
+          request: request ?? {
+            teamName: quota.teamName,
+            cwd: 'C:/isolated-sandbox',
+            providerId: provider,
+            extraCliArgs: '--resume private-session',
+            resumeSessionId: 'private-session',
+          },
+          launchIdentity: { billingMode: 'subscription' },
+          child: { pid: 123, exitCode: null, signalCode: null },
+          provisioningComplete: true,
+          activeToolCalls: new Map(),
+          pendingApprovals: new Map(),
+          expectedMembers: [],
+          leadActivityState: 'idle',
+          ceoEffectRevision: 0,
+        }) as unknown as ProvisioningRun;
+      let run: ProvisioningRun | undefined = makeRun(quota.runId, 'codex');
+      let stopGate: Promise<void> = Promise.resolve();
+      let stopEntered = () => {};
+      const runtime = createProvisioningCeoRuntime({
+        exclusive: async (_team, operation) => operation(),
+        getRun: () => run,
+        hasSecondaryRuns: () => false,
+        readProjectPath: async () => 'C:/isolated-sandbox',
+        stop: async () => {
+          const previous = run!;
+          lifecycle.push('stopping:' + previous.runId);
+          stopEntered();
+          await stopGate;
+          Object.assign(previous.child!, { exitCode: 0 });
+          run = undefined;
+          lifecycle.push('stopped:' + previous.runId);
+        },
+        launch: async (request) => {
+          assert.equal(run, undefined, 'old owner registry is retired before launch');
+          launches.push(request);
+          const runId = request.providerId + '-fresh-' + launches.length;
+          lifecycle.push('start:' + runId);
+          run = makeRun(runId, request.providerId as CeoProvider, request);
+          return { runId };
+        },
+      });
+      const create = () =>
+        new CeoSupervisor({
+          repository: new JsonCeoRepository(directory, 'isolated-context'),
+          runtime,
+          now: () => '2026-10-21T12:00:00.000Z',
+          newId: () => 'checkpoint-' + launches.length,
+        });
+      const checkpoint = async () => {
+        await create().command({
+          teamName: quota.teamName,
+          action: 'checkpoint',
+          summary: 'Continue the render; publication is confirmed.',
+          effects: [{ key: 'publish:video-1', outcome: 'confirmed' }],
+        });
+        await new JsonCeoRepository(directory, 'isolated-context').exclusive(
+          quota.teamName,
+          async (state, save) => {
+            Object.assign(state.checkpoint!, {
+              runtimeSessionId: 'private-session',
+              sessionId: 'private-session',
+              resume: '--resume private-session',
+            });
+            await save();
+          }
+        );
+      };
+      const handoff = async (failure: CeoFailure, startsBefore: number) => {
+        let release!: () => void;
+        stopGate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const entered = new Promise<void>((resolve) => {
+          stopEntered = resolve;
+        });
+        const supervisor = create();
+        const observing = supervisor.observe(failure);
+        await entered;
+        try {
+          assert.equal(launches.length, startsBefore, 'no start before physical stop confirmation');
+          assert.equal(run?.child?.exitCode, null);
+          assert.equal(
+            (await new JsonCeoRepository(directory, 'isolated-context').read(quota.teamName))
+              .status,
+            'stopping'
+          );
+        } finally {
+          release();
+        }
+        await observing;
+        await Promise.all([create().observe(failure), create().observe(failure)]);
+        assert.equal(launches.length, startsBefore + 1, 'exactly one start for this quota event');
+        return create().read(quota.teamName);
+      };
+      await create().command({ teamName: quota.teamName, action: 'enable' });
+      await checkpoint();
+      await create().command({
+        teamName: quota.teamName,
+        action: 'available',
+        provider: 'anthropic',
+      });
+      const claude = await handoff({ ...quota, epoch: 1 }, 0);
+      assert.equal(claude.owner?.provider, 'anthropic');
+      assert.equal(claude.owner?.role, 'reserve');
+      assert.equal(claude.epoch, 2);
+      assert.deepEqual(claude.handledRuns, [quota.runId]);
+
+      await create().observeProbe({
+        teamName: quota.teamName,
+        provider: 'codex',
+        availability: 'AVAILABLE',
+      });
+      await create().command({ teamName: quota.teamName, action: 'available', provider: 'codex' });
+      await create().command({ teamName: quota.teamName, action: 'retry' });
+      const recovered = await create().read(quota.teamName);
+      assert.deepEqual(recovered.owner, claude.owner);
+      assert.equal(recovered.epoch, claude.epoch);
+      assert.deepEqual(recovered.checkpoint, claude.checkpoint);
+      assert.equal(recovered.providers.codex.availability, 'AVAILABLE');
+      assert.equal(lifecycle.length, 3, 'Codex recovery never stops or restarts Claude');
+
+      await checkpoint();
+      const claudeQuota: CeoFailure = {
+        ...quota,
+        providerId: 'anthropic',
+        runId: claude.owner!.runId,
+        detail: "You've hit your limit",
+        epoch: claude.epoch,
+      };
+      const beforeStale = await create().read(quota.teamName);
+      await create().observe({ ...claudeQuota, epoch: 1 });
+      assert.deepEqual(await create().read(quota.teamName), beforeStale);
+      const codex = await handoff(claudeQuota, 1);
+      assert.equal(codex.status, 'active');
+      assert.deepEqual(codex.owner, { provider: 'codex', role: 'primary', runId: 'codex-fresh-2' });
+      assert.deepEqual(codex.roles, { primary: 'codex', reserve: 'anthropic' });
+      assert.equal(codex.epoch, 3);
+      assert.deepEqual(codex.handledRuns, [quota.runId, claude.owner!.runId]);
+      assert.deepEqual(lifecycle, [
+        'stopping:codex-run',
+        'stopped:codex-run',
+        'start:anthropic-fresh-1',
+        'stopping:anthropic-fresh-1',
+        'stopped:anthropic-fresh-1',
+        'start:codex-fresh-2',
+      ]);
+      for (const [index, request] of launches.entries()) {
+        assert.equal(request.providerId, index === 0 ? 'anthropic' : 'codex');
+        assert.equal(request.clearContext, true);
+        assert.equal(request.extraCliArgs, '');
+        assert.equal(request.requiredBillingMode, 'subscription');
+        assert.match(request.prompt!, /fresh provider session/);
+        assert.match(request.prompt!, new RegExp('Fencing epoch: ' + (index + 2)));
+        assert.match(request.prompt!, /publish:video-1/);
+        assert.doesNotMatch(
+          JSON.stringify(request),
+          /private-session|[sS]essionId|--resume|codex-run|anthropic-fresh/
+        );
+      }
+      // handledRuns fences still reject retired runs even with the current epoch.
+      await create().observe({ ...quota, epoch: codex.epoch });
+      await create().observe({ ...claudeQuota, epoch: codex.epoch });
+      await create().command({ teamName: quota.teamName, action: 'retry' });
+      assert.deepEqual(await create().read(quota.teamName), codex);
+      assert.equal(launches.length, 2);
+      assert.equal(lifecycle.length, 6);
     } finally {
       await removeTestStore(directory);
     }

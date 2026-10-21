@@ -57,12 +57,14 @@ export function emptyCeoState(teamName: string, contextId: string): CeoState {
 
 export function selectReserve(state: CeoState): CeoProvider | null {
   const previousProvider = state.owner?.provider ?? state.checkpoint?.provider;
-  const provider = state.roles.reserve;
-  return previousProvider &&
-    provider !== previousProvider &&
-    state.providers[provider].availability === 'AVAILABLE'
-    ? provider
-    : null;
+  if (!previousProvider) return null;
+  // Roles define preference, not a one-way handoff: either executor can exhaust quota.
+  return (
+    [state.roles.primary, state.roles.reserve].find(
+      (provider) =>
+        provider !== previousProvider && state.providers[provider].availability === 'AVAILABLE'
+    ) ?? null
+  );
 }
 
 export function recordCeoEvent(
