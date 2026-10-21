@@ -71,6 +71,7 @@ export function createTeamRuntimeRecoveryFeature(deps: {
     onConfigChanged(listener: (section: string) => void): () => void;
   };
   getCurrentContextId(): string;
+  isRecoveryOwnedElsewhere?(teamName: string): Promise<boolean>;
   listActiveTeamNames(): Promise<string[]>;
   isTeamActive(teamName: string): Promise<boolean>;
   getRuntimeState(teamName: string): Promise<{ isAlive: boolean; runId: string | null }>;
@@ -129,7 +130,8 @@ export function createTeamRuntimeRecoveryFeature(deps: {
     config,
     now: () => clock.now(),
     getCurrentContextId: deps.getCurrentContextId,
-    getRuntimeState: deps.getRuntimeState,
+    getRuntimeState: async (teamName) => (await deps.isRecoveryOwnedElsewhere?.(teamName))
+      ? { isAlive: false, runId: null } : deps.getRuntimeState(teamName),
     getRuntimeSnapshot: deps.getRuntimeSnapshot,
     getLeadName: deps.getLeadName,
     getInboxMessages: deps.getInboxMessages,
@@ -233,6 +235,7 @@ export function createTeamRuntimeRecoveryFeature(deps: {
 
   const scan = async (teamName: string): Promise<void> => {
     if (disposed) return;
+    if (await deps.isRecoveryOwnedElsewhere?.(teamName)) return;
     const existing = scansInFlight.get(teamName);
     if (existing) return existing;
     const request = (async () => {

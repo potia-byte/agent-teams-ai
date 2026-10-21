@@ -82,6 +82,25 @@ export function applyElectronDevPathOverrides(
       : null;
   if (appliedUserDataDir) {
     app.setPath?.('userData', appliedUserDataDir);
+    for (const [name, suffix] of [
+      ['sessionData', 'session'],
+      ['logs', 'logs'],
+      ['crashDumps', 'crashes'],
+    ] as const) {
+      const isolatedPath = path.join(appliedUserDataDir, suffix);
+      if (
+        !ensureDirectory(
+          isolatedPath,
+          warnings,
+          `${AGENT_TEAMS_ELECTRON_USER_DATA_DIR_ENV}/${suffix}`
+        )
+      ) {
+        throw new Error(
+          `Cannot isolate Electron ${name} under the explicit dev userData directory`
+        );
+      }
+      app.setPath?.(name, isolatedPath);
+    }
     setAppDataBasePath(appliedUserDataDir);
   }
 

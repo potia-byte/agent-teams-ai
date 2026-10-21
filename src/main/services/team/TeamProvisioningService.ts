@@ -1,4 +1,5 @@
 import { spawnCli } from '@main/utils/childProcess';
+import { createProvisioningCeoRuntime } from './provisioning/TeamProvisioningCeoRuntime';
 
 import {
   applyLeadRuntimeSettingsToTeamMeta,
@@ -111,6 +112,20 @@ export class TeamProvisioningService extends TeamProvisioningOpenCodeAggregatePr
     observer: ((failure: LeadRuntimeFailureObservation) => void) | null
   ): void {
     this.runtimeFailureObservationBoundary.setObserver(observer);
+  }
+
+  createCeoRuntime() {
+    return createProvisioningCeoRuntime({
+      exclusive: (teamName, operation) => this.withTeamLock(teamName, operation),
+      getRun: (teamName) => {
+        const id = this.runTracking.getAliveRunId(teamName);
+        return id ? this.runs.get(id) : undefined;
+      },
+      hasSecondaryRuns: (teamName) => this.hasSecondaryRuntimeRuns(teamName),
+      stop: (teamName) => this.stopTeam(teamName),
+      launch: (request) => this.launchTeam(request, () => undefined),
+      readProjectPath: async (teamName) => (await this.teamMetaStore.getMeta(teamName))?.cwd,
+    });
   }
 
   protected observeRuntimeFailure(

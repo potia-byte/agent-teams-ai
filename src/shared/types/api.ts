@@ -121,6 +121,7 @@ import type { TmuxAPI } from './tmux';
 import type { WaterfallData } from './visualization';
 import type { AnnouncementsApi } from '@features/announcements/contracts';
 import type { AppCloseCoordinationElectronApi } from '@features/app-close-coordination/contracts';
+import type { CeoSupervisorElectronApi } from '@features/ceo-provider-supervisor/contracts';
 import type {
   ReviewDraftHistoryConflictCandidateSummary,
   ReviewDraftHistoryEntry,
@@ -129,6 +130,7 @@ import type {
 import type { CodexAccountElectronApi } from '@features/codex-account/contracts';
 import type { CodexRuntimeAPI } from '@features/codex-runtime-installer/contracts';
 import type { ExternalAgentConnectionApi } from '@features/external-agent-connection/contracts';
+import type { MediaProductionApi } from '@features/media-operations/contracts';
 import type { MemberLogStreamApi } from '@features/member-log-stream/contracts';
 import type {
   MemberWorkSyncMetricsRequest,
@@ -854,9 +856,11 @@ export interface ReviewAPI {
 export interface ElectronAPI
   extends
     RecentProjectsElectronApi,
+    CeoSupervisorElectronApi,
     CodexAccountElectronApi,
     TokenUsageElectronApi,
     ProjectFolderElectronApi {
+  mediaProduction: MediaProductionApi;
   teamGroupChats: TeamGroupChatsAPI;
   announcements: AnnouncementsApi;
   externalAgentConnection: ExternalAgentConnectionApi;

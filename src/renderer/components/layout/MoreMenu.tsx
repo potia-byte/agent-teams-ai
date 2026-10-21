@@ -133,6 +133,19 @@ export const MoreMenu = ({
     ...(isElectronMode()
       ? [
           {
+            id: 'production',
+            label: 'Производство',
+            icon: Activity,
+            onClick: () => {
+              openTab({ type: 'production', label: 'Производство' });
+              setIsOpen(false);
+            },
+          },
+        ]
+      : []),
+    ...(isElectronMode()
+      ? [
+          {
             id: 'news',
             label: t('announcements.title'),
             icon: Newspaper,

@@ -114,10 +114,8 @@ import {
   type TeamImportFeatureFacade,
 } from '@features/team-import/main';
 import * as teamMemberSettings from '@features/team-provisioning/main';
-import {
-  createTeamRuntimeRecoveryFeature,
-  type TeamRuntimeRecoveryFeatureFacade,
-} from '@features/team-runtime-recovery/main';
+import type { TeamRuntimeRecoveryFeatureFacade } from '@features/team-runtime-recovery/main';
+import { composeDesktopRuntimeRecovery } from './composition/composeDesktopRuntimeRecovery';
 import {
   TOKEN_USAGE_SNAPSHOT_CHANGED,
   TOKEN_USAGE_BUDGET_STATUS_CHANGED,
@@ -2068,7 +2066,8 @@ async function initializeServices(): Promise<void> {
     },
   });
   teamProvisioningService.setLaunchAdmissionGuard(externalAgentConnection.assertLaunchAdmission);
-  teamRuntimeRecoveryFeature = createTeamRuntimeRecoveryFeature({
+  teamRuntimeRecoveryFeature = composeDesktopRuntimeRecovery({
+    ipcMain, ceoRuntime: teamProvisioningService.createCeoRuntime(),
     teamsBasePath: getTeamsBasePath(),
     configManager,
     getCurrentContextId: () => contextRegistry.getActive().id,

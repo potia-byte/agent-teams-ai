@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AGENT_TEAMS_ELECTRON_CLAUDE_ROOT_ENV,
@@ -50,10 +50,37 @@ describe('applyElectronDevPathOverrides', () => {
         name: 'userData',
         value: userDataDir,
       },
+      { name: 'sessionData', value: path.join(userDataDir, 'session') },
+      { name: 'logs', value: path.join(userDataDir, 'logs') },
+      { name: 'crashDumps', value: path.join(userDataDir, 'crashes') },
     ]);
     expect(getClaudeBasePath()).toBe(claudeRoot);
     expect(fs.existsSync(userDataDir)).toBe(true);
     expect(fs.existsSync(claudeRoot)).toBe(true);
+    for (const suffix of ['session', 'logs', 'crashes']) {
+      expect(fs.existsSync(path.join(userDataDir, suffix))).toBe(true);
+    }
+  });
+
+  it('does not change Electron paths when no explicit dev override is supplied', () => {
+    const setPath = vi.fn();
+    const result = applyElectronDevPathOverrides({ setPath }, {});
+    expect(setPath).not.toHaveBeenCalled();
+    expect(result).toEqual({ userDataDir: null, claudeRoot: null, warnings: [] });
+  });
+
+  it('stops startup if a dev log directory cannot be isolated', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-teams-blocked-logs-'));
+    tempDirs.push(tempRoot);
+    fs.writeFileSync(path.join(tempRoot, 'logs'), 'A file prevents directory creation');
+    expect(() =>
+      applyElectronDevPathOverrides(
+        { setPath: vi.fn() },
+        {
+          [AGENT_TEAMS_ELECTRON_USER_DATA_DIR_ENV]: tempRoot,
+        }
+      )
+    ).toThrow('Cannot isolate Electron logs');
   });
 
   it('rejects relative override paths', () => {

@@ -55,6 +55,7 @@ import { SENTRY_ENVIRONMENT, SENTRY_RELEASE } from '@shared/utils/sentryConfig';
 import { createBrowserReviewApi } from './browserReviewApi';
 
 import type { AnnouncementsApi, AnnouncementsSnapshot } from '@features/announcements/contracts';
+import type { CeoSupervisorApi } from '@features/ceo-provider-supervisor/contracts';
 import type {
   CodexAccountSnapshotDto,
   CodexStartChatgptLoginOptions,
@@ -64,6 +65,7 @@ import type {
   ConnectionInfoV1,
   ExternalAgentConnectionApi,
 } from '@features/external-agent-connection/contracts';
+import type { MediaProductionApi } from '@features/media-operations/contracts';
 import type { MemberLogStreamApi } from '@features/member-log-stream/contracts';
 import type { ProjectFolderElectronApi } from '@features/project-folder/contracts';
 import type { DashboardRecentProjectsPayload } from '@features/recent-projects/contracts';
@@ -225,6 +227,10 @@ function createBrowserRuntimeProviderError(
   };
 }
 
+async function desktopProductionOnly(): Promise<never> {
+  throw new Error('Производство работает в настольном приложении');
+}
+
 export class HttpAPIClient implements ElectronAPI {
   get teamGroupChats() {
     return createHttpTeamGroupChatsAPI(this.baseUrl);
@@ -259,6 +265,23 @@ export class HttpAPIClient implements ElectronAPI {
   }
 
   private baseUrl: string;
+  mediaProduction: MediaProductionApi = {
+    list: desktopProductionOnly,
+    create: desktopProductionOnly,
+    get: desktopProductionOnly,
+    attach: desktopProductionOnly,
+    advance: desktopProductionOnly,
+    decide: desktopProductionOnly,
+    summary: desktopProductionOnly,
+  };
+  ceoSupervisor: CeoSupervisorApi = {
+    read: async () => {
+      throw new Error('CEO supervisor requires the desktop app');
+    },
+    command: async () => {
+      throw new Error('CEO supervisor requires the desktop app');
+    },
+  };
   private eventSource: EventSource | null = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- event callbacks have varying signatures
   private eventListeners = new Map<string, Set<(...args: any[]) => void>>();

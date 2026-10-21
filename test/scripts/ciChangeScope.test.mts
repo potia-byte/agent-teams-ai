@@ -106,7 +106,7 @@ test('metadata edits never own the canonical required qualification name', async
   const yaml = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
   assert.match(
     yaml,
-    /full-qualification:\n\s+name:.*'Metadata qualification'.*'Full qualification'/
+    /full-qualification:\r?\n\s+name:.*'Metadata qualification'.*'Full qualification'/
   );
   assert.match(yaml, /github\.event\.action == 'edited'.*needs\.plan\.result != 'success'/);
 });
