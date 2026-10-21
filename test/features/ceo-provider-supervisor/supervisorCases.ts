@@ -554,7 +554,8 @@ export function registerSupervisorCases(
     await fixture.prepare();
     fixture.failStart();
     await fixture.supervisor.observe(quota);
-    assert.equal(fixture.state().reason, 'launch_outcome_unknown');
+    assert.equal(fixture.state().reason, 'start_failed');
+    assert.doesNotMatch(JSON.stringify(fixture.state()), /unknown start result/);
     await fixture.create().command({ teamName: quota.teamName, action: 'retry' });
     assert.equal(fixture.launches.length, 1);
   });

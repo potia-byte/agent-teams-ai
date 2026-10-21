@@ -6,6 +6,7 @@ import { CeoSupervisor } from '../../../src/features/ceo-provider-supervisor/cor
 import { JsonCeoRepository } from '../../../src/features/ceo-provider-supervisor/main/infrastructure/JsonCeoRepository';
 import { createProvisioningCeoRuntime } from '../../../src/main/services/team/provisioning/TeamProvisioningCeoRuntime';
 
+import { registerRuntimeStartCases } from './runtimeStartCases';
 import { quota, supervisorFixture } from './supervisorCases';
 
 import type { CeoProvider } from '../../../src/features/ceo-provider-supervisor/contracts';
@@ -30,6 +31,7 @@ async function stateFile(directory: string, teamName = quota.teamName): Promise<
 export function registerAdapterCases(
   test: (name: string, body: () => void | Promise<void>) => unknown
 ): void {
+  registerRuntimeStartCases(test);
   test('real JSON storage survives reconstruction and serializes competing instances', async () => {
     const directory = await mkdtemp(join(storeParent, '.store-'));
     try {
@@ -136,6 +138,7 @@ export function registerAdapterCases(
       const makeRun = (runId: string, provider: CeoProvider, request?: TeamLaunchRequest) =>
         ({
           runId,
+          teamName: quota.teamName,
           request: request ?? {
             teamName: quota.teamName,
             cwd: 'C:/isolated-sandbox',
@@ -496,15 +499,25 @@ export function registerAdapterCases(
           },
           launch: async (request) => {
             launched = request;
+            run = {
+              runId: 'new',
+              teamName: 'sandbox',
+              request,
+              launchIdentity: { billingMode: 'subscription' },
+            } as unknown as ProvisioningRun;
             return { runId: 'new' };
           },
         });
         assert.equal((await adapter.inspect('sandbox'))?.effectsRevision, 4);
         await assert.rejects(() => adapter.stop('sandbox', 'stale'), /Stale/);
         await adapter.stop('sandbox', 'old');
-        assert.equal(await adapter.start('sandbox', provider, 'saved-checkpoint'), 'new');
+        assert.equal(
+          await adapter.start('sandbox', provider, 'saved-checkpoint', 'model-hint'),
+          'new'
+        );
         const request = launched as TeamLaunchRequest | null;
         assert.equal(request?.providerId, provider);
+        assert.equal(request?.model, 'model-hint');
         assert.equal(request?.providerBackendId, provider === 'codex' ? 'codex-native' : 'cli-sdk');
         assert.equal(request?.requiredBillingMode, 'subscription');
         assert.equal(request?.skipPermissions, false);

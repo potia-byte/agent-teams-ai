@@ -148,3 +148,23 @@ SQLite: JSON-хранилище хватило, ничего не заблоки
 - seed-isolated-claude-auth.cjs удалён из репозитория по указанию владельца: копирование OAuth между профилями запрещено. Записи выше о временной копии для anthropic — исторические; код копирования больше не существует, `.credentials.json` под `.local-tools` не найден.
 - Финальная сборка `pnpm build` (HEAD c0d43c828 + правки диагностики) запущена повторно с профилем ceo6: окно создаётся, панель «Директор CEO · Ожидание исполнителя» читает сохранённое после перезапуска состояние (поколение 2, Codex: «Квота исчерпана», Claude: «Доступность не проверена»), роли «Основной провайдер: Codex · резервный: Claude», история переключений на русском, строк с «????» нет. РЕАЛЬНАЯ проверка (UI через CDP).
 - Сигнал квоты СИНТЕТИЧЕСКИЙ (инжектор); процессы Codex РЕАЛЬНЫЕ. Переходы с участием живого Claude (Codex→Claude, Claude→Codex) НЕ ПРОВЕРЕНЫ: нет штатной авторизации Claude в изолированном профиле.
+
+## 21.10.2026 - CEO e2e с живым Claude (тег ceo8, Claude-root профиля ceo6): шаги 1-4 частично PASS, дефект запуска замены
+
+Драйвер: scripts/diagnostics/ceo-e2e-run.cjs (--tag ceo8 --claude-root <run-ceo6\claude-root>), лаунчер получил параметр -ClaudeRoot (только передаёт путь в AGENT_TEAMS_ELECTRON_CLAUDE_ROOT). Код драйвера не читает и не копирует credentials. Журнал: .local-tools/diagnostics/ceo-e2e-ceo8.log. Проект: .local-tools/ceo-e2e-project-ceo8. Первая попытка (ceo7) остановлена: общий Claude-root уже был привязан к старой команде ("One logical CEO already belongs to another team in this context", JsonCeoRepository.bindRole); драйвер теперь переносит старый .ceo-supervisor в .local-tools/tmp (бэкап). Запросов к провайдерам: codex 2 (ceo7+ceo8), claude 1 (opus).
+
+| Шаг | Метка | Результат |
+| --- | --- | --- |
+| 1 codex solo lead gpt-5.6-luna ready | REAL | PASS |
+| 2 enable (codex/primary, epoch 1) + checkpoint (op-1 confirmed) | REAL | PASS |
+| 3 anthropic AVAILABLE | REAL (IPC) | PASS |
+| 4 синтетическая codex-квота x2 | SYNTHETIC строка, остальное REAL | PASS: старое дерево lead gone за 1.4 с, новый Claude lead стартовал через 9.6 с (старое ушло ДО нового); ровно один новый lead; доставлено 2 строки, quota_confirmed 1, handledRuns 1; транскрипт нового lead содержит текст checkpoint и НЕ содержит старый session id/runId; Claude lead реально авторизован из изолированного root (assistant "OK", без Not logged in). FAIL: owner НЕ закоммичен - status blocked / launch_outcome_unknown, epoch 2, owner null; история quota_confirmed > starting_fresh_session > launch_outcome_unknown (нет owner_committed) |
+| 5 codex available при активном Claude | REAL | FAIL/не проверено по смыслу: owner отсутствует; Claude pid 26096 не менялся и fail-back не было, но владельца в supervisor нет |
+| 6 checkpoint Claude + синтетическая anthropic-квота | - | НЕ ПРОВЕРЕНО: checkpoint невозможен (нет owner), состояние blocked |
+| 7 kill app, relaunch тем же userData | REAL | Частично: состояние сохранено (epoch, history, checkpoint, handledRuns), нового запуска нет, но статус остался launch_outcome_unknown (не runtime_ownership_unknown/interrupted_handoff), т.к. активного owner не было. Блок stale runId не выполнен (драйвер упал на owner=null; исправлено null-безопасностью, прогон не повторён) |
+| 8 cleanup | REAL | PASS: процессов прогона нет, .credentials.json только в изолированном claude-root, в новых логах/транскриптах нет eyJ / sk-ant- / Bearer / refreshToken (6 файлов) |
+
+Дефекты (src не менялся):
+1. Replacement Claude lead запущен, но supervisor ставит launch_outcome_unknown: CeoSupervisor.continueHandoff (src/features/ceo-provider-supervisor/core/application/CeoSupervisor.ts ~стр. 244-268) глотает исключение пустым catch, причина не логируется. Ошибка возникла ~5 с после старта; вероятная причина (гипотеза, не подтверждена) - runtime.inspect сразу после launchTeam (TeamProvisioningCeoRuntime.ts стр. 18-31) не видит run как alive (getAliveRunId выставляется после завершения bootstrap) -> 'Replacement ownership unproven'. Следствие: живой Claude lead остаётся без владельца в supervisor, автоматический fail-back/дальнейшие шаги блокируются. Воспроизведение: tag ceo8, шаг 4.
+2. Замена запускается без выбора модели: lead использует claude-opus-4-8 / opus[1m] по умолчанию (TeamProvisioningCeoRuntime.start не передаёт model), нельзя запросить haiku.
+3. Общий Claude-root: одна логическая CEO на контекст (role-binding.json) - повторное использование root для новой команды требует очистки привязки.

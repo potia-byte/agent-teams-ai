@@ -18,6 +18,11 @@ export const availabilityLabels: Record<ExecutorAvailability, string> = {
   UNKNOWN: 'Доступность не проверена',
 };
 export const reasonLabels: Record<string, string> = {
+  start_failed: 'Не удалось подтвердить результат запуска; повторный запуск заблокирован',
+  replacement_ownership_unproven:
+    'Владение новой сессией не подтверждено; повторный запуск заблокирован',
+  launch_rejected: 'Новый запуск не допущен; требуется сверка состояния',
+  start_timeout: 'Истекло время подтверждения новой сессии; повторный запуск заблокирован',
   runtime_ownership_unknown: 'Текущий исполнитель не подтверждён',
   interrupted_handoff: 'Переключение было прервано; требуется ручная сверка',
   unsafe_checkpoint_or_unknown_effect:

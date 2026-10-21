@@ -20,8 +20,8 @@ export interface CeoRuntime {
     effectsRevision: number;
   } | null>;
   stop(teamName: string, expectedRunId: string): Promise<void>;
-  /** New provider session only. No session ID is accepted by this port. */
-  start(teamName: string, provider: CeoProvider, prompt: string): Promise<string>;
+  /** Resolves only after alive ownership and subscription are proven. Fresh session only. */
+  start(teamName: string, provider: CeoProvider, prompt: string, model?: string): Promise<string>;
 }
 
 export class CeoSupervisor {
@@ -245,11 +245,13 @@ export class CeoSupervisor {
         effects: state.checkpoint.effects.map(({ key, outcome }) => ({ key, outcome })),
       }),
     ].join('\n');
+    let startReturned = false;
     try {
       const runId = await runtime.start(state.teamName, provider, prompt);
+      startReturned = true;
       const current = await runtime.inspect(state.teamName);
       if (current?.runId !== runId || current.provider !== provider)
-        throw new Error('Replacement ownership unproven');
+        throw new Error('replacement_ownership_unproven');
       state.owner = {
         provider,
         runId,
@@ -258,10 +260,19 @@ export class CeoSupervisor {
       state.status = 'active';
       recordCeoEvent(state, now(), 'owner_committed', provider);
       await save();
-    } catch {
+    } catch (error) {
       // Launch may have reached the provider. Never launch it a second time blindly.
       state.status = 'blocked';
-      state.reason = 'launch_outcome_unknown';
+      // Persist only known machine reasons, never provider errors, prompts or secrets.
+      state.reason =
+        error instanceof Error &&
+        ['replacement_ownership_unproven', 'launch_rejected', 'start_timeout'].includes(
+          error.message
+        )
+          ? error.message
+          : startReturned
+            ? 'replacement_ownership_unproven'
+            : 'start_failed';
       recordCeoEvent(state, now(), 'launch_outcome_unknown', provider);
       await save();
     }

@@ -2,7 +2,8 @@
 // Only the terminal quota signal is SYNTHETIC (JSONL line appended to AGENT_TEAMS_E2E_QUOTA_SIGNAL_FILE,
 // consumed by src/main/testing/e2eQuotaSignalInjector.ts). Everything else is REAL: claude-multimodel lead
 // processes with real providers, IPC window.electronAPI.ceoSupervisor.*, stop/launch via TeamProvisioningService.
-// Usage: node ceo-e2e-run.cjs [--tag ceo1] [--port 9333] [--wait-sec 240]
+// Usage: node ceo-e2e-run.cjs [--tag ceo7] [--port 9333] [--wait-sec 240] [--claude-root <already logged-in isolated Claude root>]
+// The Claude root is only handed to the launcher (AGENT_TEAMS_ELECTRON_CLAUDE_ROOT); this script never reads or copies credentials.
 // Quota use: 3 minimal provider requests (codex, anthropic, codex). Steps are labelled REAL / SYNTHETIC.
 const path = require('path'); const fs = require('fs');
 const { execFileSync, spawn } = require('child_process');
@@ -10,7 +11,7 @@ const { connect } = require('./cdp-eval.cjs');
 const arg = (n, d) => { const i = process.argv.indexOf('--' + n); return i > 0 ? process.argv[i + 1] : d; };
 const tag = arg('tag', 'ceo' + Date.now().toString(36)); const port = +arg('port', 9333); const waitSec = +arg('wait-sec', 240);
 const root = path.resolve(__dirname, '../..'); const tools = path.join(root, '.local-tools');
-const stateDir = path.join(tools, 'state', 'run-' + tag); const claudeRoot = path.join(stateDir, 'claude-root');
+const stateDir = path.join(tools, 'state', 'run-' + tag); const claudeRoot = path.resolve(arg('claude-root', path.join(stateDir, 'claude-root')));
 const userData = path.join(stateDir, 'userdata'); const signalFile = path.join(userData, 'e2e-quota-signal.jsonl');
 const project = path.join(tools, 'ceo-e2e-project-' + tag);
 const team = 'ceo-e2e-' + Date.now().toString(36);
@@ -44,7 +45,7 @@ function startSampler() {
         for (const p of cur) { const s = seen.get(p.pid); if (!s) seen.set(p.pid, { ...p, first: now, last: now, gone: null }); else { s.last = now; s.gone = null; } }
         for (const [pid, s] of seen) if (!ids.has(pid) && !s.gone) s.gone = now;
         cur = [];
-      } else if (line.startsWith('P|')) { const [, pid, ppid, name, ...cm] = line.split('|'); cur.push({ pid: +pid, ppid: +ppid, name, lead: /claude-multimodel/i.test(name) && /--input-format/.test(cm.join('|')) }); }
+      } else if (line.startsWith('P|')) { const [, pid, ppid, name, ...cm] = line.split('|'); cur.push({ pid: +pid, ppid: +ppid, name, cmd: cm.join('|').slice(0, 400), lead: /claude-multimodel/i.test(name) && /--input-format/.test(cm.join('|')) }); }
     }
   });
 }
@@ -59,7 +60,7 @@ function launchApp() {
   const pf = path.join(stateDir, 'electron.pid'); fs.rmSync(pf, { force: true });
   // stdout/stderr to a file: a pipe handle inherited by electron would block the parent forever.
   const outFile = path.join(tools, 'tmp', `launch-${tag}.txt`); fs.mkdirSync(path.dirname(outFile), { recursive: true }); const fd = fs.openSync(outFile, 'w');
-  require('child_process').spawnSync('powershell', ['-NoProfile', '-Command', `& '${path.join(__dirname, 'launch-isolated-app.ps1')}' -Tag '${tag}' -Port ${port} -UseRealProviderAuth -QuotaSignalFile`], { stdio: ['ignore', fd, fd], timeout: 60000 });
+  require('child_process').spawnSync('powershell', ['-NoProfile', '-Command', `& '${path.join(__dirname, 'launch-isolated-app.ps1')}' -Tag '${tag}' -Port ${port} -UseRealProviderAuth -QuotaSignalFile -ClaudeRoot '${claudeRoot}'`], { stdio: ['ignore', fd, fd], timeout: 60000 });
   fs.closeSync(fd); const out = fs.readFileSync(outFile, 'utf8');
   const m = /pid=(\d+)/.exec(out); if (!m) throw new Error('launch failed: ' + out.slice(0, 300)); epid = +m[1]; log('REAL', 'app launched pid', epid); return epid;
 }
@@ -81,11 +82,16 @@ const transcripts = () => { const out = {}; const pd = path.join(claudeRoot, 'pr
 async function waitFor(label, fn, sec = waitSec, every = 2500) { const s = Date.now(); let last; while ((Date.now() - s) / 1000 < sec) { try { last = await fn(); if (last) return last; } catch (e) { last = null; } await sleep(every); } log('WARN', 'timeout waiting for', label); return null; }
 const countInjected = () => { let n = 0; for (const f of ['out', 'err']) { try { n += (fs.readFileSync(path.join(tools, 'diagnostics', `app-${tag}.${f}`), 'utf8').match(/SYNTHETIC quota signal injected/g) || []).length; } catch { /* none */ } } return n; };
 
+const baseTranscripts = transcripts(); // pre-existing transcripts in the shared Claude root are ignored
 (async () => {
     try {
     fs.mkdirSync(project, { recursive: true });
     ps(`Set-Location '${project}'; git init -q; 'throwaway' | Set-Content README.txt`);
     log('REAL', 'throwaway git project', project, 'team', team);
+    // One logical CEO per Claude-root context (JsonCeoRepository.bindRole): a reused root still bound to an older throwaway team would reject enable.
+    // Move the old binding dir aside (backup, not delete); contains no credentials.
+    const ceoDir = path.join(claudeRoot, 'teams', '.ceo-supervisor');
+    if (fs.existsSync(ceoDir)) { const bk = path.join(tools, 'tmp', `ceo-supervisor-backup-${tag}-${Date.now()}`); fs.renameSync(ceoDir, bk); log('REAL', 'moved stale CEO binding of previous throwaway team to', bk); }
     startSampler(); launchApp(); await attach(); log('REAL', 'attached over CDP');
 
     // ---- Step 1 ----
@@ -104,44 +110,75 @@ const countInjected = () => { let n = 0; for (const f of ['out', 'err']) { try {
     const ck1 = await ceoCmd({ action: 'checkpoint', summary: 'Task: reply with exactly the single word OK and nothing else. Do not use any tools, do not create tasks or teammates.', effects: [{ key: 'op-1', outcome: 'confirmed' }] });
     check(2, 'checkpoint saved with effects', ck1.ok && !!ck1.v.checkpoint?.id && ck1.v.checkpoint.runId === run1, ck1.ok ? brief(ck1.v) : ck1.e);
     const ckptId = ck1.ok ? ck1.v.checkpoint.id : null;
-    const oldTranscripts = transcripts(); const oldSessionIds = Object.values(oldTranscripts);
+    const oldTranscripts = Object.fromEntries(Object.entries(transcripts()).filter(([f]) => !baseTranscripts[f])); const oldSessionIds = Object.values(oldTranscripts);
     log('REAL', 'old lead session ids', J(oldSessionIds));
 
-    // ---- Step 3 (Claude auth): NOT VERIFIED per owner instruction (no credential copying) ----
-    log('NOT VERIFIED', 'steps 3,5,6 and the Claude-real part of 4: no standard (non-copied) Claude auth in the isolated root; credentials are never copied');
-    results.push({ step: '3,5,6', name: 'NOT VERIFIED: live Claude lead, codex->anthropic launch, no-interrupt on codex available, anthropic->codex hand-back (needs Claude auth in isolated root; owner forbids copying credentials)', ok: null });
+    // ---- Step 3 (REAL IPC): mark anthropic available ----
+    const av = await ceoCmd({ action: 'available', provider: 'anthropic' });
+    check(3, 'anthropic marked AVAILABLE (REAL IPC)', av.ok && av.v.providers?.anthropic?.availability === 'AVAILABLE', av.ok ? brief(av.v) : av.e);
 
-    // ---- Step 4 (reduced): codex quota with NO reserve available (anthropic stays UNKNOWN) ----
-    const injBefore = countInjected(); const detail = "usage_limit_reached: You've hit your usage limit";
-    appendSignal(run1, 'codex', detail); await sleep(150); appendSignal(run1, 'codex', detail); // duplicate
-    await waitFor('quota handled', async () => { const s = await ceoRead(); log('REAL', 'poll', J(brief(s))); return s.status !== 'active' ? s : null; }, 120, 3000);
-    await sleep(8000); const s4b = await ceoRead(); const ev4 = events(s4b);
-    check(4, 'old codex lead + provider tree gone (stop through TeamProvisioningService)', old1.leads.every((p) => seen.get(p)?.gone) && old1.prov.every((p) => seen.get(p)?.gone) && leads().length === 0, { alive: fmt(alive()) });
-    check(4, 'epoch +1 once, status waiting/no_available_executor (or blocked), owner null, NO launch', s4b.epoch === 2 && s4b.owner === null && ['waiting', 'blocked'].includes(s4b.status) && !ev4.includes('starting_fresh_session') && leads().length === 0, brief(s4b));
-    check(4, 'history has quota_confirmed; duplicate line deduped (2 delivered, handledRuns 1)', ev4.includes('quota_confirmed') && ev4.filter((e) => e === 'quota_confirmed').length === 1 && countInjected() - injBefore === 2 && s4b.handledRuns.length === 1 && s4b.checkpoint?.id === ckptId, { events: ev4, delivered: countInjected() - injBefore });
-    const al = await call('window.electronAPI.teams.aliveList()'); check(4, 'aliveList does not contain team', !J(al).includes(team), J(al).slice(0, 200));
-    const ckpt2 = ckptId; const run2 = run1; const run3 = run1;
+    // ---- Step 4: codex quota (SYNTHETIC line x2) -> REAL Claude replacement lead ----
+    const preS = await ceoRead(); const injBefore = countInjected(); const detail = "usage_limit_reached: You've hit your usage limit";
+    const t4 = Date.now(); appendSignal(run1, 'codex', detail); await sleep(150); appendSignal(run1, 'codex', detail); // duplicate
+    const s4 = await waitFor('claude owner active', async () => { const s = await ceoRead(); log('REAL', 'poll', J(brief(s))); return s.status === 'active' && s.owner && s.owner.provider === 'anthropic' ? s : null; }, 240, 3000);
+    await sleep(5000); const s4b = await ceoRead(); const ev4 = events(s4b);
+    const newLeads = [...seen.values()].filter((s) => s.lead && s.first >= t4 - 500 && !old1.leads.includes(s.pid));
+    const claudeLeads = leads().filter((s) => !old1.leads.includes(s.pid));
+    log('REAL', 'step4 processes', fmt(alive()), 'lead cmd', claudeLeads[0] ? claudeLeads[0].cmd.replace(/\S*claude-multimodel\.exe/i, 'claude-multimodel') : 'none');
+    const oldGone = old1.leads.every((p) => seen.get(p)?.gone) && old1.prov.every((p) => seen.get(p)?.gone);
+    const goneBeforeStart = newLeads.length > 0 && [...old1.leads, ...old1.prov].every((p) => seen.get(p)?.gone && seen.get(p).gone <= Math.min(...newLeads.map((l) => l.first)) + 400);
+    check(4, 'old codex lead + provider tree gone (REAL)', oldGone, { alive: fmt(alive()) });
+    check(4, 'old tree gone BEFORE replacement lead started (sampler 200ms resolution)', goneBeforeStart, { oldGoneAt: old1.leads.concat(old1.prov).map((p) => (seen.get(p)?.gone || 0) - t4), newFirst: newLeads.map((l) => l.first - t4) });
+    check(4, 'exactly one new Claude lead alive; model', newLeads.length === 1 && claudeLeads.length === 1 && leads().length === 1, { newLeads: fmt(newLeads), model: (claudeLeads[0]?.cmd.match(/--model\s+(\S+)/) || [])[1] });
+    check(4, 'owner anthropic/reserve, epoch +1 once, active', !!s4 && s4b.owner?.provider === 'anthropic' && s4b.owner.role === 'reserve' && s4b.epoch === preS.epoch + 1 && s4b.status === 'active', brief(s4b));
+    check(4, 'handledRuns dedup (2 lines delivered, quota_confirmed once, handledRuns 1)', ev4.filter((e) => e === 'quota_confirmed').length === 1 && countInjected() - injBefore === 2 && s4b.handledRuns.length === 1 && s4b.handledRuns.includes(run1), { events: ev4, delivered: countInjected() - injBefore });
+    check(4, 'history quota_confirmed -> starting_fresh_session -> owner_committed', hasSeq(ev4, ['quota_confirmed', 'starting_fresh_session', 'owner_committed']), ev4);
+    const run2 = s4b.owner && s4b.owner.runId; const claudePid = claudeLeads[0] && claudeLeads[0].pid;
+    const newTr = Object.entries(transcripts()).filter(([f]) => !baseTranscripts[f] && !oldTranscripts[f]);
+    const trText = newTr.map(([f, id]) => ({ id, text: fs.readFileSync(f, 'utf8') }));
+    const ckSnip = 'reply with exactly the single word OK';
+    const withCk = trText.filter((t) => t.text.includes(ckSnip));
+    const withOld = trText.filter((t) => oldSessionIds.some((id) => t.text.includes(id)) || t.text.includes(run1));
+    check(4, 'new lead transcript contains checkpoint text; no old codex session id / runId', withCk.length >= 1 && withOld.length === 0, { newTranscripts: newTr.length, withCheckpoint: withCk.length, withOldId: withOld.length, oldSessionIds });
+    const notLoggedIn = trText.some((t) => /Not logged in|authentication_failed/.test(t.text));
+    check(4, 'Claude lead really authenticated from the isolated root (assistant message, no Not logged in)', trText.some((t) => /"type":"assistant"/.test(t.text)) && !notLoggedIn, { newTranscripts: newTr.length, notLoggedIn });
 
-    // ---- Step 7 ----
-    const pre7 = await ceoRead(); const preEpoch = pre7.epoch; const preBrief = brief(pre7); const preHist = pre7.history.length;
+    // ---- Step 5: codex available while Claude is active -> no interruption ----
+    const pre5 = await ceoRead(); const hist5 = pre5.history.length;
+    const av2 = await ceoCmd({ action: 'available', provider: 'codex' }); await sleep(20000); const s5 = await ceoRead();
+    check(5, 'codex marked AVAILABLE (REAL IPC); Claude pid/runId unchanged, no fail-back, no new launch', av2.ok && s5.providers.codex.availability === 'AVAILABLE' && s5.owner?.runId === run2 && s5.owner.provider === 'anthropic' && s5.epoch === pre5.epoch && leads().length === 1 && leads()[0].pid === claudePid && !events(s5).slice(hist5).includes('starting_fresh_session'), { ...brief(s5), pid: claudePid, leads: fmt(leads()) });
+
+    // ---- Step 6: new checkpoint for Claude run once idle, then anthropic quota (SYNTHETIC) -> REAL Codex lead ----
+    const ck2 = await waitFor('checkpoint (claude idle)', async () => { const r = await ceoCmd({ action: 'checkpoint', summary: 'Task: reply with exactly the single word OK and nothing else. Do not use any tools, do not create tasks or teammates. (claude checkpoint)', effects: [{ key: 'op-2', outcome: 'confirmed' }] }); if (!r.ok) { log('REAL', 'checkpoint not yet', r.e); return null; } return r.v; }, 180, 4000);
+    check(6, 'new checkpoint saved for Claude run (REAL IPC)', !!ck2 && ck2.checkpoint?.runId === run2 && ck2.checkpoint.id !== ckptId, ck2 ? brief(ck2) : null);
+    const leadSeen = new Set([...seen.values()].filter((s) => s.lead).map((s) => s.pid)); const pre6 = await ceoRead(); const t6 = Date.now();
+    appendSignal(run2, 'anthropic', "You've hit your limit");
+    const s6 = await waitFor('codex owner active', async () => { const s = await ceoRead(); log('REAL', 'poll', J(brief(s))); return s.status === 'active' && s.owner && s.owner.provider === 'codex' && s.owner.runId !== run2 ? s : null; }, 240, 3000);
+    await sleep(5000); const s6b = await ceoRead(); const ev6 = events(s6b);
+    const newCodex = [...seen.values()].filter((s) => s.lead && !leadSeen.has(s.pid) && s.first >= t6 - 500);
+    check(6, 'Claude process gone (REAL)', !!seen.get(claudePid)?.gone && !leads().some((s) => s.pid === claudePid), { alive: fmt(alive()) });
+    check(6, 'exactly one new Codex lead alive', newCodex.length === 1 && leads().length === 1 && providers().length >= 1, { newCodex: fmt(newCodex), leads: fmt(leads()), prov: fmt(providers()) });
+    check(6, 'epoch +1 once, owner codex/primary, active, quota_confirmed->starting_fresh_session->owner_committed', !!s6 && s6b.epoch === pre6.epoch + 1 && s6b.owner?.provider === 'codex' && s6b.owner.role === 'primary' && s6b.status === 'active' && hasSeq(ev6.slice(pre6.history.length), ['quota_confirmed', 'starting_fresh_session', 'owner_committed']), brief(s6b));
+
+    // ---- Step 7: kill app with ACTIVE owner, relaunch same userData ----
+    const pre7 = await ceoRead(); const preBrief = brief(pre7); const preHist = pre7.history.length;
     log('REAL', 'pre-kill state', J(preBrief), 'procs', fmt(alive()));
-    const knownPids = [...seen.keys()];
     try { c.close(); } catch { /* ignore */ }
     log('REAL', 'taskkill electron pid', epid); try { execFileSync('taskkill', ['/PID', String(epid), '/T', '/F']); } catch (e) { log('WARN', 'taskkill', String(e.message).slice(0, 200)); }
     await sleep(6000);
     const survivors = alive(); log('REAL', 'SURVIVORS after app kill (my run)', fmt(survivors) || 'none');
-    check(7, 'app killed; record survivors', true, { survivors: fmt(survivors) });
+    check(7, 'app killed with active owner; record survivors', pre7.status === 'active' && !!pre7.owner, { survivors: fmt(survivors) });
     launchApp(); await attach(); log('REAL', 'relaunched same userData, attached');
     await sleep(5000);
     const launchesBefore = leadsEver();
     const r1 = await ceoRead(); await sleep(20000); const r2 = await ceoRead(); const r3 = await ceoRead();
-    check(7, 'state persisted (epoch, history, checkpoint, handledRuns)', r1.epoch === pre7.epoch && r1.checkpoint?.id === ckpt2 && r1.history.length >= preHist && r1.handledRuns.length === 1, { pre: preBrief, post: brief(r1) });
-    check(7, 'fails closed after restart (waiting/no_available_executor or blocked), no owner', ['waiting', 'blocked'].includes(r1.status) && r1.owner === null, brief(r1));
-    check(7, 'no automatic new launch, no repeated action (history stable after 1st read)', leadsEver() === launchesBefore && J(r2.history) === J(r1.history) && J(r3.history) === J(r1.history) && !events(r1).slice(preHist).includes('starting_fresh_session'), { post: events(r1).slice(preHist), newLeads: leadsEver() - launchesBefore });
-    const inj0 = countInjected(); const epochR = r3.epoch, histR = J(r3.history);
-    appendSignal(run1, 'codex', detail); appendSignal('stale-run-id-0000', 'codex', detail); appendSignal('stale-run-id-0001', 'anthropic', "You've hit your limit"); await sleep(8000);
+    check(7, 'state persisted (epoch, history, checkpoint, handledRuns)', r1.epoch === pre7.epoch && r1.checkpoint?.id === pre7.checkpoint?.id && r1.history.length >= preHist && r1.handledRuns.length === pre7.handledRuns.length, { pre: preBrief, post: brief(r1) });
+    check(7, 'fails closed: blocked with runtime_ownership_unknown or interrupted_handoff', r1.status === 'blocked' && /runtime_ownership_unknown|interrupted_handoff/.test(String(r1.reason)), brief(r1));
+    check(7, 'no automatic new launch, no repeated action (history stable)', leadsEver() === launchesBefore && J(r2.history) === J(r1.history) && J(r3.history) === J(r1.history) && !events(r1).slice(preHist).includes('starting_fresh_session'), { post: events(r1).slice(preHist), newLeads: leadsEver() - launchesBefore, leads: fmt(leads()) });
+    const inj0 = countInjected(); const epochR = r3.epoch, histR = J(r3.history); const liveRun = pre7.owner?.runId || 'no-owner-run';
+    appendSignal(run1, 'codex', detail); appendSignal(run2 || 'no-run2', 'anthropic', "You've hit your limit"); appendSignal(run2 || 'no-run2', 'anthropic', "You've hit your limit"); appendSignal('stale-run-id-0000', 'codex', detail); appendSignal(liveRun, 'codex', detail); await sleep(8000);
     const r4 = await ceoRead();
-    check(7, 'stale/old-runId synthetic lines ignored (delivered, no state change, no launch)', countInjected() - inj0 === 3 && r4.epoch === epochR && J(r4.history) === histR && leadsEver() === launchesBefore && leads().length === 0, { delivered: countInjected() - inj0, ...brief(r4), leads: fmt(leads()) });
+    check(7, 'stale/duplicate old-runId synthetic lines ignored (delivered, no state change, no launch)', countInjected() - inj0 === 5 && r4.epoch === epochR && J(r4.history) === histR && leadsEver() === launchesBefore, { delivered: countInjected() - inj0, ...brief(r4), leads: fmt(leads()) });
   } catch (e) {
     log('FATAL', e && e.stack || String(e)); results.push({ step: '?', name: 'fatal: ' + String(e.message).slice(0, 200), ok: false });
   } finally {
@@ -152,8 +189,14 @@ const countInjected = () => { let n = 0; for (const f of ['out', 'err']) { try {
     await sleep(4000); const left = alive(); log('REAL', 'leftover my-run processes before force kill', fmt(left) || 'none');
     for (const s of left) { try { execFileSync('taskkill', ['/PID', String(s.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* */ } }
     if (sampler) { await sleep(1500); sampler.kill(); }
-    const creds = []; (function walk(d, depth) { if (depth > 6) return; let es = []; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; } for (const e of es) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p, depth + 1); else if (e.name === '.credentials.json') creds.push(p); } })(path.join(tools, 'state'), 0);
-    check(8, 'no .credentials.json remains under .local-tools/state', creds.length === 0, creds);
+    // Names only (no file is opened): the only .credentials.json allowed under .local-tools is the owner-created one in the isolated claude-root.
+    const creds = []; (function walk(d, depth) { if (depth > 8) return; let es = []; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; } for (const e of es) { const p = path.join(d, e.name); if (e.isDirectory()) { if (e.name !== 'node_modules') walk(p, depth + 1); } else if (e.name === '.credentials.json') creds.push(p); } })(tools, 0);
+    check(8, 'no .credentials.json under .local-tools except the isolated claude-root profile', creds.every((p) => npath(path.dirname(p)) === npath(claudeRoot)), creds);
+    // Token-pattern scan of logs produced by this run; prints only counts, never matches.
+    const scan = [path.join(tools, 'diagnostics', `app-${tag}.out`), path.join(tools, 'diagnostics', `app-${tag}.err`), logFile, path.join(tools, 'tmp', `launch-${tag}.txt`), ...Object.keys(transcripts()).filter((f) => !baseTranscripts[f])];
+    const pats = { eyJ: /eyJ[A-Za-z0-9_-]{8,}/g, 'sk-ant-': /sk-ant-/g, Bearer: /Bearer\s+[A-Za-z0-9._-]{8,}/g, refreshToken: /refreshToken["']?\s*[:=]\s*["'][^"']{8,}/g };
+    const hits = {}; for (const f of scan) { let t = ''; try { t = fs.readFileSync(f, 'utf8'); } catch { continue; } for (const [k, re] of Object.entries(pats)) { const n = (t.match(re) || []).length; if (n) hits[path.basename(f) + ':' + k] = n; } }
+    check(8, 'no token patterns in new logs/transcripts', Object.keys(hits).length === 0, { scanned: scan.length, hits });
     let still = ''; try { still = ps(`Get-Process -Id ${epid} -ErrorAction SilentlyContinue | % Id`).trim(); } catch { /* */ }
     const unsettled = [...seen.values()].filter((s) => { try { return ps(`Get-Process -Id ${s.pid} -ErrorAction SilentlyContinue | % Id`).trim() === String(s.pid); } catch { return false; } });
     check(8, 'no process of this run left (electron + providers)', !still && unsettled.length === 0, { electron: still, others: fmt(unsettled) });
