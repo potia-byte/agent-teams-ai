@@ -84,3 +84,37 @@ smoke: `./scripts/diagnostics/run-app-smoke.ps1`.
 2. Известные, не новые: better-sqlite3 ABI137 vs 149 (откат на JSON), node-pty conpty_console_list_agent 'AttachConsole failed' при запуске без консоли, нет orchestrator CLI ('Runtime adapter bridge disabled').
 
 Не проверено: включение CEO (action enable), запуск команды, реальные сессии провайдеров, переключение на резерв.
+
+## 21.10.2026 (вечер) - runtime 0.0.124 в изолированном app + реальный solo-lead запуск через CDP
+
+Реальные результаты. Коммитов нет. HOME/USERPROFILE не менялись. Установленный Agent Teams AI и реальные проекты не затрагивались. CEO feature не включалась.
+
+### Корень проблемы 'Runtime adapter bridge disabled: orchestrator CLI binary not resolved'
+- Сообщение: src/main/index.ts:499 (createOpenCodeRuntimeAdapterRegistry), когда ClaudeBinaryResolver.resolve() вернул null.
+- Режим всегда agent_teams_orchestrator (src/main/services/team/cliFlavor.ts). Резолвер (ClaudeBinaryResolver.ts runResolve) ищет по порядку: env CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH (явный путь) -> process.resourcesPath/runtime/claude-multimodel(.exe) (только в упакованной сборке) -> PATH (claude-multimodel) -> 'doctor' fallback; иначе null (fail closed).
+- Единственное место, которое выставляет CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH для dev/built - scripts/dev-with-runtime.mjs (строка ~776). Прямой запуск `electron .` (как в cdp.cjs/run-app-smoke.ps1) обходит этот лаунчер, runtime в PATH нет, resourcesPath = node_modules/electron/dist/resources. Дефекта в src нет - не хватало env в нашем лаунчере.
+- Фикс (лаунчер, без правок src): scripts/diagnostics/launch-isolated-app.ps1 задаёт CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH=.local-tools/runtime-cache/0.0.124/win32-x64/payload-v1/claude-multimodel.exe (`--version` = 2.777.777 (Claude Code)), AGENT_TEAMS_ELECTRON_USER_DATA_DIR и AGENT_TEAMS_ELECTRON_CLAUDE_ROOT на .local-tools/state/run-<tag>/.
+- Проверка: app-smoke.err (старый запуск) содержит 'bridge disabled' 1 раз; app-t1.err (новый) 0 раз; claude-cli-auth-diag.ndjson: binaryPath = payload-v1\claude-multimodel.exe, installed=true, version 2.777.777.
+
+### Реальный запуск команды (проект .local-tools/e2e-project-20261021104748, новый git-репозиторий)
+Команды:
+```
+./scripts/diagnostics/launch-isolated-app.ps1 -Tag t1 -UseRealProviderAuth      # печатает pid
+node scripts/diagnostics/team-e2e-run.cjs --project <abs> --provider codex --model gpt-5.6-luna --electron-pid <pid> --claude-root <abs claude-root> --wait-sec 200
+node scripts/diagnostics/seed-isolated-claude-auth.cjs seed|clean <abs claude-root>   # только для anthropic
+node scripts/diagnostics/team-e2e-run.cjs ... --provider anthropic --model haiku ...
+```
+Драйвер вызывает window.electronAPI.teams.createTeam({members: [], providerId, model, skipPermissions: true, prompt: 'Reply with exactly: OK...'}) через CDP, опрашивает getProvisioningStatus, процессы (CIM, дерево electron), aliveList, getTeamAgentRuntime, затем teams.stop.
+
+| Провайдер | Результат |
+| --- | --- |
+| codex (gpt-5.6-luna, team e2e-codex-mvhtcml5) | PASS. runId ee4bc2a0..., lead pid 20140 (claude-multimodel.exe payload-v1, --print --input-format stream-json ...). Реальный провайдер: node codex.js pid 19824 -> codex.exe pid 15476 `exec --json --skip-git-repo-check -C <project> --ignore-user-config --ephemeral -m gpt-5.6-luna -c approval_policy="never" -c forced_login_method="chatgpt" ...` (codex-cli 0.163.0). Транскрипт lead: assistant text 'OK' (07:52:03Z). stop -> ok, aliveList [] , codex/claude-multimodel процессы завершены, остались только процессы самого app (убиты отдельно). |
+| anthropic без авторизации в изолированном root | Lead pid 7184 стартовал, ответ 'Not logged in · Please run /login' (authentication_failed, cost 0). UI/статус при этом показал 'ready' (state=ready, 'Team provisioned') - вводит в заблуждение, ошибка видна только в cliLogsTail. Причина: AGENT_TEAMS_ELECTRON_CLAUDE_ROOT изолирует CLAUDE_CONFIG_DIR, там нет .credentials.json. |
+| anthropic с временной копией только claudeAiOauth в изолированный root (seed-isolated-claude-auth.cjs, токен >60 мин, после теста удалён) | PASS. haiku, team e2e-anthropic-mvhtoa4j, lead pid 15816, result 'OK.' duration 34.8 s, is_error=false. Для anthropic отдельного процесса провайдера нет: claude-multimodel.exe сам ходит в API. stop -> ok, aliveList []. Замечание: total_cost_usd 0.166, cache_creation_input_tokens 132617 на тривиальный запрос - lead загружает большой контекст (user-level MCP/playwright и т.п. из --setting-sources user,project,local). |
+
+Наблюдения и ограничения (не исправлялись):
+1. teams.getMessagesPage для solo-lead возвращает TEAM_HISTORY_UNAVAILABLE:listing_failed: TeamInboxReader.getMessagesWindow (src/main/services/team/TeamInboxReader.ts ~583) делает readdir(<team>/inboxes), а каталога нет (ENOENT). Это зафиксировано как намеренный контракт тестами (TeamMessageHistoryRetrievalGate.test.ts:462), поэтому src не менялся. Ответ lead в драйвере читается из <claude-root>/projects/*/<session>.jsonl.
+2. Каталог моделей Codex в app показывает modelCatalogRefreshState='loading' бесконечно (getProviderStatus), createTeam с gpt-5.4-mini отклонён: 'not present in the live Codex model catalog'. `claude-multimodel model list --json --provider codex` напрямую возвращает gpt-6.1-sol, gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-sol/terra/luna; с gpt-5.6-luna запуск прошёл.
+3. Первая версия детектора ответа дала ложный PASS для anthropic (совпал старый транскрипт codex в том же cwd); исправлено фильтром по времени запуска (startIso), ложный прогон не засчитан.
+4. Codex использует реальную авторизацию ~/.codex (CODEX_HOME не переопределялся, -UseRealProviderAuth); сессии ephemeral. Квота: 1 запрос codex (первая попытка с gpt-5.4-mini отклонена до запуска) и 2 запроса anthropic (1 с ошибкой авторизации без токенов, 1 успешный).
+5. Дерево процессов app после stop: остаются electron.exe (gpu/network/renderer) и mcp-server node (принадлежат app); убиты `taskkill /PID <electron pid> /T /F`. Процессов payload-v1/run-t1 после этого не осталось.
