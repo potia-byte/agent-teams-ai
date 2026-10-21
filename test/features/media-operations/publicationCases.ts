@@ -4,7 +4,7 @@ import { PublicationQueue } from '../../../src/features/media-operations/core/ap
 import { operationIdFor } from '../../../src/features/media-operations/core/domain/publication';
 import { createMediaOperationsFeature } from '../../../src/features/media-operations/main';
 import { JsonMediaOperationsRepository } from '../../../src/features/media-operations/main/infrastructure/JsonMediaOperationsRepository';
-import { publicationStatusLabel } from '../../../src/features/media-operations/renderer';
+import { publicationStatusLabel } from '../../../src/features/media-operations/renderer/view-models/mediaOperationsLabels';
 
 import { fixture, MemoryRepository, pass, publication } from './fixtures';
 

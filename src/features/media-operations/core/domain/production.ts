@@ -131,7 +131,9 @@ export function parseQaReport(report: string) {
       report
     );
   if (verdicts.length !== 1 || !section || criteriaHeadings.length !== 1)
-    throw new Error('QA: нужны VERDICT и явный список UNVERIFIED_CRITERIA');
+    throw new Error(
+      'Отчёт QA не по протоколу: нужна ровно одна строка «VERDICT: PASS | PASS_WITH_NOTES | BLOCK» и заголовок UNVERIFIED_CRITERIA со списком «- критерий» (или «нет»)'
+    );
   const lines = section[1]
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -141,7 +143,9 @@ export function parseQaReport(report: string) {
     unverifiedCriteria = [];
   else {
     if (!lines.length || lines.some((line) => !/^[-*]\s+\S/.test(line)))
-      throw new Error('QA: неверный список непроверенных критериев');
+      throw new Error(
+        'Отчёт QA: каждый непроверенный критерий должен быть строкой «- критерий» (или одно слово «нет»)'
+      );
     unverifiedCriteria = lines.map((line) => line.replace(/^[-*]\s+/, ''));
   }
   return qaVerdict.parse({ verdict: verdicts[0][1].toUpperCase(), unverifiedCriteria });

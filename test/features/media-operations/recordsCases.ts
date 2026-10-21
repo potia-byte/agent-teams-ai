@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { JsonMediaOperationsRepository } from '../../../src/features/media-operations/main/infrastructure/JsonMediaOperationsRepository';
-import { financeStatusLabel, metricLabels } from '../../../src/features/media-operations/renderer';
+import { financeStatusLabel, metricLabels } from '../../../src/features/media-operations/renderer/view-models/mediaOperationsLabels';
 
 import { fixture, publication } from './fixtures';
 
