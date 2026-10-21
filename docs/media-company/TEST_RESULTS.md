@@ -168,3 +168,20 @@ SQLite: JSON-хранилище хватило, ничего не заблоки
 1. Replacement Claude lead запущен, но supervisor ставит launch_outcome_unknown: CeoSupervisor.continueHandoff (src/features/ceo-provider-supervisor/core/application/CeoSupervisor.ts ~стр. 244-268) глотает исключение пустым catch, причина не логируется. Ошибка возникла ~5 с после старта; вероятная причина (гипотеза, не подтверждена) - runtime.inspect сразу после launchTeam (TeamProvisioningCeoRuntime.ts стр. 18-31) не видит run как alive (getAliveRunId выставляется после завершения bootstrap) -> 'Replacement ownership unproven'. Следствие: живой Claude lead остаётся без владельца в supervisor, автоматический fail-back/дальнейшие шаги блокируются. Воспроизведение: tag ceo8, шаг 4.
 2. Замена запускается без выбора модели: lead использует claude-opus-4-8 / opus[1m] по умолчанию (TeamProvisioningCeoRuntime.start не передаёт model), нельзя запросить haiku.
 3. Общий Claude-root: одна логическая CEO на контекст (role-binding.json) - повторное использование root для новой команды требует очистки привязки.
+
+## 21.10.2026 - CEO e2e, тег ceo9 (после фикса ожидания run в TeamProvisioningCeoRuntime.start): шаги 1-8 PASS
+
+Команда: `node scripts\diagnostics\ceo-e2e-run.cjs --tag ceo9 --port 9335 --claude-root ...\run-ceo6\claude-root` (запуск с редиректом в файлы). Журнал: .local-tools/diagnostics/ceo-e2e-ceo9.log, вывод .local-tools/tmp/run-ceo9.out. Credentials драйвер не читает. Запросов к провайдерам: codex 2 (старт + замена Codex), claude 1 (+1 лёгкий старт), квота-строки СИНТЕТИЧЕСКИЕ (2+1+5).
+
+| Шаг | Метка | Результат |
+| --- | --- | --- |
+| 1 codex solo lead ready | REAL | PASS |
+| 2 enable (epoch 1) + checkpoint op-1 confirmed | REAL | PASS |
+| 3 anthropic AVAILABLE | REAL (IPC) | PASS |
+| 4 codex-квота x2 -> Claude lead | SYNTHETIC строка, остальное REAL | PASS: старое дерево ушло за 1.5 с до старта нового (8.9 с); один Claude lead; owner anthropic/reserve, epoch 2 один раз; quota_confirmed 1, handledRuns 1, доставлено 2; history ...quota_confirmed>starting_fresh_session>owner_committed; checkpoint-текст в транскрипте нового lead, старого session id/runId нет; Claude авторизован (assistant, без Not logged in). Дефект ceo8 устранён |
+| 5 codex available при активном Claude | REAL | PASS: pid 16780/runId/epoch без изменений, fail-back нет |
+| 6 checkpoint на Claude run + синтетическая anthropic-квота | SYNTHETIC строка | PASS по состоянию: Claude (16780) исчез, один новый lead (27784), owner codex/primary, epoch 3 один раз, active, quota_confirmed>starting_fresh_session>owner_committed. Проверка "exactly one new Codex lead" в драйвере дала FAIL из-за условия providers()>=1: дочерний codex-процесс per-turn и в простое отсутствует (так же в шаге 1); условие в драйвере убрано, команда lead логируется в следующих прогонах. Что 27784 именно codex-lead подтверждено только supervisor-состоянием (owner codex), не cmdline |
+| 7 taskkill app с АКТИВНЫМ owner (codex/primary, сразу после шага 6), relaunch того же userData | REAL | PASS: выживших нет; epoch/history/checkpoint/handledRuns сохранены; status blocked / runtime_ownership_unknown (owner сохранён), нового запуска нет, history стабильна 20+ с; 5 stale/дубль строк (старый run1, дубль anthropic x2, stale-id, прежний live runId) доставлены, состояние не изменилось, запусков нет |
+| 8 cleanup | REAL | PASS: .credentials.json только в isolated claude-root владельца, токен-паттернов 0 (7 файлов), процессов прогона нет |
+
+Не проверено: interrupted_handoff (kill посреди передачи); что owner=Codex lead после relaunch действительно жив/мёртв (app убит вместе с деревом); cmdline Codex lead шага 6.

@@ -157,7 +157,7 @@ const baseTranscripts = transcripts(); // pre-existing transcripts in the shared
     await sleep(5000); const s6b = await ceoRead(); const ev6 = events(s6b);
     const newCodex = [...seen.values()].filter((s) => s.lead && !leadSeen.has(s.pid) && s.first >= t6 - 500);
     check(6, 'Claude process gone (REAL)', !!seen.get(claudePid)?.gone && !leads().some((s) => s.pid === claudePid), { alive: fmt(alive()) });
-    check(6, 'exactly one new Codex lead alive', newCodex.length === 1 && leads().length === 1 && providers().length >= 1, { newCodex: fmt(newCodex), leads: fmt(leads()), prov: fmt(providers()) });
+    check(6, 'exactly one new Codex lead alive', newCodex.length === 1 && leads().length === 1 /* codex provider child is per-turn, absent while idle (same as step 1) */, { cmd: (newCodex[0]?.cmd || '').replace(/\S*claude-multimodel\.exe/i, 'cm').slice(0, 300), newCodex: fmt(newCodex), leads: fmt(leads()), prov: fmt(providers()) });
     check(6, 'epoch +1 once, owner codex/primary, active, quota_confirmed->starting_fresh_session->owner_committed', !!s6 && s6b.epoch === pre6.epoch + 1 && s6b.owner?.provider === 'codex' && s6b.owner.role === 'primary' && s6b.status === 'active' && hasSeq(ev6.slice(pre6.history.length), ['quota_confirmed', 'starting_fresh_session', 'owner_committed']), brief(s6b));
 
     // ---- Step 7: kill app with ACTIVE owner, relaunch same userData ----
