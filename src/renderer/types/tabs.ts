@@ -81,6 +81,7 @@ export interface Tab {
     | 'dashboard'
     | 'notifications'
     | 'settings'
+    | 'production'
     | 'teams'
     | 'organizations'
     | 'team'

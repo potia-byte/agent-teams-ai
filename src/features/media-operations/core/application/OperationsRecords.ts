@@ -161,6 +161,7 @@ export class OperationsRecords {
     return this.deps.repository.transact((state) => {
       const record = state.tasks.find((item) => item.key === key);
       if (!record) throw new Error('Task not found');
+      if (record.pipeline) throw new Error('Use the production stage API for pipeline tasks');
       assertTaskTransition(record.state, next);
       const value = productionTask.parse({
         ...record,

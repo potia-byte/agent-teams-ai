@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { productionPipelineSchema } from './production';
+
 export const text = z
   .string()
   .min(1)
@@ -131,6 +133,7 @@ export const metricSnapshot = z.strictObject({
 });
 export const taskState = z.enum(['planned', 'in_progress', 'blocked', 'completed', 'cancelled']);
 export const productionTask = z.strictObject({
+  pipeline: productionPipelineSchema.optional(),
   key: text,
   videoId: text,
   stage: text,

@@ -52,6 +52,7 @@ const TAB_ICONS = {
   dashboard: LayoutDashboard,
   notifications: Bell,
   settings: Settings,
+  production: Activity,
   session: FileText,
   teams: Users,
   organizations: Network,

@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 
 import { OperationsRecords } from '../../core/application/OperationsRecords';
 import { OwnerApprovals } from '../../core/application/OwnerApprovals';
+import { ProductionCycle } from '../../core/application/ProductionCycle';
 import { PublicationQueue } from '../../core/application/PublicationQueue';
 import { text, timestamp } from '../../core/domain/validation';
 import { JsonMediaOperationsRepository } from '../infrastructure/JsonMediaOperationsRepository';
 
 import type { MediaOperationsDependencies } from '../../core/application/ports';
+import type { ProductionDependencies } from '../../core/application/productionPorts';
 
 /** Explicit composition only: no Electron registration, network clients or background jobs. */
 export async function createMediaOperationsFeature(
@@ -15,12 +17,14 @@ export async function createMediaOperationsFeature(
     ownerId: string;
     ownerChatId: string;
     currency?: string;
+    production?: ProductionDependencies;
   } & Partial<Omit<MediaOperationsDependencies, 'ownerId' | 'ownerChatId'>>
 ): Promise<{
   publications: PublicationQueue;
   approvals: OwnerApprovals;
   records: OperationsRecords;
   read: MediaOperationsDependencies['repository']['read'];
+  production: ProductionCycle | null;
 }> {
   const ownerId = text.parse(options.ownerId);
   const ownerChatId = text.parse(options.ownerChatId);
@@ -44,10 +48,17 @@ export async function createMediaOperationsFeature(
   if (state.ownerId !== ownerId) throw new Error('Owner mismatch');
   const publications = new PublicationQueue(deps);
   await publications.recoverPublishing();
+  const approvals = new OwnerApprovals(deps);
+  const records = new OperationsRecords(deps);
+  const production = options.production
+    ? new ProductionCycle(deps, options.production, publications, approvals, records)
+    : null;
+  await production?.recover();
   return {
     publications,
-    approvals: new OwnerApprovals(deps),
-    records: new OperationsRecords(deps),
+    approvals,
+    records,
+    production,
     read: () => deps.repository.read(),
   };
 }

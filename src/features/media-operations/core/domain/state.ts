@@ -110,5 +110,48 @@ export function validateMediaState(value: unknown): asserts value is MediaOperat
   }
   for (const task of state.tasks) {
     validateTaskHistory(task);
+    if (task.pipeline) {
+      const pipeline = task.pipeline;
+      const current = pipeline.stages.find((stage) => stage.status !== 'completed');
+      if (
+        task.stage !== (current?.id ?? 'publication_queue') ||
+        (task.state === 'completed') !== !current ||
+        (task.state === 'blocked') !== (current?.status === 'blocked')
+      )
+        throw new Error('Invalid production task projection');
+      for (const stage of pipeline.stages) {
+        if (
+          stage.status === 'completed' &&
+          stage.id !== 'owner_approval' &&
+          !stage.artifacts.length
+        )
+          throw new Error('Completed production stage requires evidence');
+        if (
+          stage.id === 'qa' &&
+          stage.status === 'completed' &&
+          (!stage.artifacts[0]?.qa || stage.artifacts[0].qa.verdict === 'BLOCK')
+        )
+          throw new Error('Completed QA must pass');
+      }
+      if (
+        pipeline.operationId &&
+        !state.publications.some(
+          (record) => record.operationId === pipeline.operationId && record.videoId === task.videoId
+        )
+      )
+        throw new Error('Invalid production publication reference');
+      if (
+        pipeline.approvalId &&
+        !state.approvals.some(
+          (request) =>
+            request.id === pipeline.approvalId && request.operationId === pipeline.operationId
+        )
+      )
+        throw new Error('Invalid production approval reference');
+      for (let index = 1; index < pipeline.history.length; index++) {
+        if (pipeline.history[index].at < pipeline.history[index - 1].at)
+          throw new Error('Production journal clock moved backwards');
+      }
+    }
   }
 }

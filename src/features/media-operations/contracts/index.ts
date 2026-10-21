@@ -1,3 +1,6 @@
+import type { ProductionPipeline } from './production';
+export * from './production';
+
 export type PublicationState =
   | 'draft'
   | 'awaiting_qa'
@@ -115,6 +118,7 @@ export interface MetricSnapshot {
 
 export type ProductionTaskState = 'planned' | 'in_progress' | 'blocked' | 'completed' | 'cancelled';
 export interface ProductionTask {
+  pipeline?: ProductionPipeline;
   key: string;
   videoId: string;
   stage: string;

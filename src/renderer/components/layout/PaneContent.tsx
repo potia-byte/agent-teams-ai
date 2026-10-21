@@ -85,6 +85,12 @@ interface PaneContentProps {
   isPaneFocused: boolean;
 }
 
+const ProductionPanel = lazy(() =>
+  import('@features/media-operations/renderer').then((module) => ({
+    default: module.ProductionPanel,
+  }))
+);
+
 interface PaneTabSlotProps {
   tab: Tab;
   isActive: boolean;
@@ -166,6 +172,7 @@ const PaneTabSlot = ({ tab, isActive, isPaneFocused }: PaneTabSlotProps): React.
           {tab.type === 'dashboard' && <DashboardView isActive={isActive} />}
           {tab.type === 'notifications' && <NotificationsView />}
           {tab.type === 'settings' && <SettingsView />}
+          {tab.type === 'production' && <ProductionPanel isActive={isActive} />}
           {tab.type === 'teams' && <TeamListView />}
           {tab.type === 'organizations' && (
             <TabUIProvider tabId={tab.id}>
